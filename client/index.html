@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Surface</title>
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <!-- Top-right cluster — session chip + locked mode + new session. Persistent
+       chrome (lives outside #canvas, survives every reconcile). -->
+  <div id="topbar">
+    <div id="mode-chip" class="chip" hidden title="Working mode (locked for this session)">
+      <span class="sc-label">mode</span>
+      <span class="sc-id">—</span>
+    </div>
+    <div id="session-chip" class="chip" hidden title="Session — tap to copy id">
+      <span class="sc-label">session</span>
+      <span class="sc-id">—</span>
+    </div>
+    <button id="new-session" class="chip" type="button" title="Start a fresh session — resets the runtime's replayed context to near-zero">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="sc-label">new</span>
+    </button>
+  </div>
+
+  <!-- The retained-mode canvas the agent composes via mount/update/remove/layout -->
+  <main id="stage">
+    <div id="canvas">
+      <div class="surface-empty">
+        <div class="eyebrow">Surface</div>
+        <h1>Speak to begin.</h1>
+        <p>Ask anything in the dock below. I answer by composing a glanceable canvas — not a wall of text.</p>
+      </div>
+    </div>
+    <!-- v2 scene surface — an optional Remotion player mounts here for scene() responses -->
+    <div id="player-root" hidden></div>
+  </main>
+
+  <!-- Freehand drawing overlay — annotations the agent can screenshot -->
+  <canvas id="draw"></canvas>
+
+  <!-- Quiet working indicator -->
+  <div id="status" hidden><span class="dot"></span><span class="status-label">working</span></div>
+
+  <!-- Streaming tool-call feed (bottom-left; live during a turn) -->
+  <div id="toolfeed" hidden></div>
+
+  <!-- Context meter (bottom-right) — model · tokens · context fill · % -->
+  <div id="meter" hidden>
+    <div class="mt-row"><span class="mt-model">—</span><span class="mt-pct">0%</span></div>
+    <div class="mt-bar"><div class="mt-fill"></div></div>
+    <div class="mt-tokens">0 / 200k</div>
+  </div>
+
+  <!-- Permission + ask decision cards land here -->
+  <div id="cards"></div>
+
+  <!-- Locked prompt dock — the kernel's syscall interface (with the time-travel seek bar inside) -->
+  <div id="dock">
+    <div id="seek" hidden title="Scrub back through past frames · checkpoints by time">
+      <span class="seek-span" id="seek-span">1h</span>
+      <div class="seek-track" id="seek-track">
+        <div class="seek-fill" id="seek-fill"></div>
+        <div class="seek-thumb" id="seek-thumb"></div>
+      </div>
+      <button class="seek-now" id="seek-now" type="button">now</button>
+    </div>
+    <div class="dock-row">
+      <button id="draw-toggle" class="dock-btn" type="button" title="Draw on screen" aria-label="Draw on screen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button id="draw-clear" class="dock-btn" type="button" title="Clear drawing" aria-label="Clear drawing" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+      </button>
+      <textarea id="prompt" rows="1" placeholder="Speak to Surface…" autofocus></textarea>
+      <button id="send" title="Send (Enter)" aria-label="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- First-run mode gate — the trust posture for this connection -->
+  <div id="gate" hidden>
+    <div class="card">
+      <div class="eyebrow">First, how should I operate?</div>
+      <h3>Pick a working mode</h3>
+      <p class="sub">This locks for the session. Change it by reloading.</p>
+      <div class="row">
+        <button class="btn primary" data-mode="operator">Operator <small>Full generation + tools · trusted, single human (recommended)</small></button>
+        <button class="btn" data-mode="team">Team <small>Scoped generation + tools, attributed to you</small></button>
+        <button class="btn" data-mode="visitor">Visitor <small>View only — generation off</small></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script type="module" src="/kernel.js"></script>
+</body>
+</html>

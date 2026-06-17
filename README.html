@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Surface — display server + protocol for agent CLIs</title>
+<meta name="description" content="Surface owns the surface; the runtime borrows the fabric — LSP for agent consoles." />
+<!--
+  Surface — landing page. A single self-contained static HTML file with zero external
+  assets or CDNs. It DOGFOODS the design system: the :root token block below is copied
+  verbatim from client/style.css (the four-rings contract), so this page is itself a
+  faithful rendering of the visionOS glass language it documents.
+-->
+<style>
+  :root {
+    /* glass */
+    --glass:        rgba(255, 255, 255, 0.10);
+    --glass-strong: rgba(255, 255, 255, 0.16);
+    --glass-dock:   rgba(18, 18, 22, 0.55);
+    --hairline:     rgba(255, 255, 255, 0.22);
+    --hairline-soft:rgba(255, 255, 255, 0.12);
+    --blur:         blur(36px) saturate(1.8);
+
+    /* ink */
+    --ink:    #f6f6f8;
+    --muted:  rgba(246, 246, 248, 0.62);
+    --faint:  rgba(246, 246, 248, 0.38);
+
+    /* accent + signals */
+    --accent: #cdfb45;
+    --accent-ink: #1a2400;
+    --good: #7cffb2;
+    --warn: #ffd479;
+    --bad:  #ff8a8a;
+
+    /* geometry */
+    --r-tile: 26px;
+    --r-inner: 16px;
+    --r-dock: 30px;
+    --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+    --shadow-soft: 0 8px 28px rgba(0, 0, 0, 0.22);
+
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+
+  body {
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+    color: var(--ink);
+    min-height: 100%;
+    /* visionOS environmental backdrop — warm/cool blobs over a deep base */
+    background:
+      radial-gradient(58vw 58vw at 14% 12%, rgba(205, 251, 69, 0.16), transparent 60%),
+      radial-gradient(62vw 62vw at 86% 22%, rgba(86, 173, 255, 0.20), transparent 62%),
+      radial-gradient(70vw 70vw at 72% 96%, rgba(255, 120, 180, 0.16), transparent 60%),
+      radial-gradient(50vw 50vw at 30% 90%, rgba(120, 110, 255, 0.16), transparent 60%),
+      linear-gradient(160deg, #14161c 0%, #0c0d12 100%);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: clamp(28px, 6vh, 72px) 24px 96px; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Nameplate ─────────────────────────────────────────────────────────── */
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: clamp(36px, 8vh, 80px); }
+  .orb {
+    width: 30px; height: 30px; border-radius: 50%;
+    background: radial-gradient(circle at 32% 30%, #eaffb0, var(--accent) 60%, #8fb800);
+    box-shadow: 0 0 22px rgba(205, 251, 69, 0.55), inset 0 0 8px rgba(255, 255, 255, 0.5);
+  }
+  .brand .name { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand .spacer { flex: 1; }
+  .brand nav { display: flex; gap: 20px; }
+  .brand nav a { color: var(--muted); font-weight: 600; font-size: 13.5px; }
+  .brand nav a:hover { color: var(--ink); text-decoration: none; }
+
+  /* ── Hero ──────────────────────────────────────────────────────────────── */
+  .hero { margin-bottom: clamp(40px, 8vh, 84px); }
+  .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
+  .hero h1 {
+    margin: 14px 0 0; font-size: clamp(40px, 7vw, 84px); font-weight: 700;
+    letter-spacing: -0.035em; line-height: 0.98;
+  }
+  .hero .thesis {
+    margin: 22px 0 0; font-size: clamp(18px, 2.4vw, 26px); font-weight: 500;
+    color: var(--ink); max-width: 24ch; line-height: 1.3;
+  }
+  .hero .thesis .em { color: var(--accent); }
+  .hero .lede { margin: 20px 0 0; font-size: 16px; color: var(--muted); max-width: 62ch; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid var(--hairline); border-radius: 999px; cursor: pointer;
+    font: inherit; font-weight: 600; font-size: 14px; padding: 11px 22px;
+    background: var(--glass); color: var(--ink);
+    -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    transition: transform 0.1s ease, background 0.15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); background: var(--glass-strong); text-decoration: none; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.primary:hover { background: #d7ff63; }
+
+  /* ── Glass code card (the quickstart) ─────────────────────────────────────── */
+  .code-card {
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    border: 1px solid var(--hairline-soft);
+    border-radius: var(--r-tile);
+    box-shadow: var(--shadow);
+    overflow: hidden; margin-bottom: clamp(40px, 8vh, 84px);
+  }
+  .code-card .bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 13px 18px; border-bottom: 1px solid var(--hairline-soft);
+    background: rgba(0, 0, 0, 0.18);
+  }
+  .code-card .bar .dot { width: 11px; height: 11px; border-radius: 50%; background: var(--hairline); }
+  .code-card .bar .title { margin-left: 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  pre {
+    margin: 0; padding: 22px 24px; overflow-x: auto;
+    font: 13.5px/1.7 "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink);
+  }
+  pre .c { color: var(--faint); }                 /* comment */
+  pre .k { color: var(--accent); }                /* keyword */
+  pre .s { color: var(--good); }                  /* string  */
+  pre .f { color: #9fd1ff; }                       /* function */
+  .run-row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 24px; border-top: 1px solid var(--hairline-soft); background: rgba(0,0,0,0.12);
+  }
+  .run-row .label { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+  .run-row code {
+    font: 13px "SF Mono", ui-monospace, Menlo, monospace; color: var(--accent);
+    background: rgba(0,0,0,0.3); border: 1px solid var(--hairline-soft);
+    border-radius: 999px; padding: 6px 14px;
+  }
+
+  /* ── Section heading ──────────────────────────────────────────────────────── */
+  .section-head { margin: 0 0 22px; }
+  .section-head .eyebrow { display: block; }
+  .section-head h2 { margin: 8px 0 0; font-size: clamp(24px, 3.4vw, 36px); font-weight: 700; letter-spacing: -0.02em; }
+
+  /* ── Bento of feature tiles (the design-system primitives) ────────────────── */
+  .bento {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: minmax(150px, auto); gap: 16px;
+    margin-bottom: clamp(40px, 8vh, 84px);
+  }
+  .tile {
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    border: 1px solid var(--hairline-soft);
+    border-radius: var(--r-tile);
+    box-shadow: var(--shadow-soft);
+    padding: 24px; display: flex; flex-direction: column; gap: 10px;
+    min-width: 0; overflow: hidden;
+  }
+  .tile.lg { grid-column: span 2; }
+  .tile .label { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+  .tile h3 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+  .tile p { margin: 0; color: var(--muted); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+    padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: var(--glass-strong); border: 1px solid var(--hairline-soft); color: var(--ink);
+  }
+  .pill.good { background: rgba(124, 255, 178, 0.16); border-color: rgba(124, 255, 178, 0.4); color: var(--good); }
+
+  /* ── Is / is-not ──────────────────────────────────────────────────────────── */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: clamp(40px, 8vh, 84px); }
+  .panel {
+    background: var(--glass);
+    -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+    border: 1px solid var(--hairline-soft);
+    border-radius: var(--r-tile); box-shadow: var(--shadow-soft); padding: 26px;
+  }
+  .panel.is { background: var(--glass-strong); border-color: var(--hairline); }
+  .panel h3 { margin: 0 0 14px; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+  .panel.is h3 { color: var(--accent); }
+  .panel.isnot h3 { color: var(--muted); }
+  .panel ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  .panel li { position: relative; padding-left: 22px; color: var(--ink); line-height: 1.45; }
+  .panel li::before {
+    content: ""; position: absolute; left: 2px; top: 8px;
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+  }
+  .panel.isnot li::before { background: var(--faint); }
+  .panel li b { font-weight: 700; }
+
+  /* ── Footer ───────────────────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--hairline-soft); padding-top: 28px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 16px;
+    color: var(--faint); font-size: 13px;
+  }
+  footer .spacer { flex: 1; }
+  footer a { color: var(--muted); font-weight: 600; }
+  footer a:hover { color: var(--ink); text-decoration: none; }
+
+  @media (max-width: 760px) {
+    .bento { grid-template-columns: repeat(2, 1fr); }
+    .tile.lg { grid-column: 1 / -1; }
+    .split { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="brand">
+    <span class="orb" aria-hidden="true"></span>
+    <span class="name">Surface</span>
+    <span class="spacer"></span>
+    <nav>
+      <a href="docs/getting-started.html">Docs</a>
+      <a href="docs/protocol-spec.html">Protocol</a>
+      <a href="https://github.com/selfworking-ai/surface">GitHub</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <span class="eyebrow">Display server + protocol for agent CLIs</span>
+    <h1>Surface</h1>
+    <p class="thesis">Surface owns the surface; the runtime <span class="em">borrows the fabric</span>.</p>
+    <p class="lede">
+      A locked prompt dock and a generative, composable, persistent canvas that any agent
+      CLI drives to paint a glanceable operator console. Think LSP for agent consoles:
+      Surface is the editor, each agent CLI is a language server, capability negotiation
+      lights up features. The kernel owns the surface and the protocol; agents, memory, and
+      orchestration are borrowed from the runtime through an adapter.
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="docs/getting-started.html">Get started</a>
+      <a class="btn" href="https://github.com/selfworking-ai/surface">View on GitHub</a>
+    </div>
+  </section>
+
+  <section class="code-card" aria-label="Quickstart">
+    <div class="bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="title">host.mjs</span>
+    </div>
+<pre><span class="k">import</span> { createSurface } <span class="k">from</span> <span class="s">"@selfworking-ai/surface"</span>;
+<span class="k">import</span> { echoAdapter } <span class="k">from</span> <span class="s">"@selfworking-ai/surface/adapters/echo.mjs"</span>;
+
+<span class="k">const</span> surface = <span class="f">createSurface</span>({ adapter: <span class="f">echoAdapter</span>(), port: <span class="s">5757</span> });
+<span class="k">const</span> { url } = <span class="k">await</span> surface.<span class="f">listen</span>();
+console.<span class="f">log</span>(<span class="s">`Surface live at ${url}`</span>);</pre>
+    <div class="run-row">
+      <span class="label">Or just</span>
+      <code>npx surface dev</code>
+      <span style="color:var(--muted)">— boots a Surface with the echo adapter (or your <code style="color:var(--accent)">surface.config.js</code>).</span>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="eyebrow">The kernel</span>
+    <h2>A surface, not a transcript</h2>
+  </div>
+  <section class="bento">
+    <div class="tile lg">
+      <span class="label">Retained-mode canvas</span>
+      <h3>The agent patches, not repaints</h3>
+      <p>
+        Composition lives in a durable workspace document. The agent sends
+        <b>mount / update / remove / layout</b> ops; a tiny reconciler diffs by component id
+        and applies them. The canvas is composable and persistent — never a scroll log.
+      </p>
+    </div>
+    <div class="tile">
+      <span class="label">Locked dock</span>
+      <h3>One trusted input</h3>
+      <p>The kernel's syscall interface. Locked for UX <i>and</i> security — it is what makes visitor mode safe.</p>
+    </div>
+    <div class="tile">
+      <span class="label">Protocol</span>
+      <h3>Versioned + negotiated</h3>
+      <p>Every wire message carries a version. Host/runtime mismatches degrade gracefully instead of corrupting state.</p>
+    </div>
+    <div class="tile">
+      <span class="label">Capability tiers</span>
+      <h3>A · B · C</h3>
+      <p>The kernel lights up org affordances by what the adapter advertises, and quietly hides the rest.</p>
+    </div>
+    <div class="tile">
+      <span class="label">Persistence</span>
+      <h3>File store by default</h3>
+      <p>Frames + workspace persist as JSONL on disk. Swap the StorageProvider behind a kernel port.</p>
+    </div>
+    <div class="tile lg">
+      <span class="label">Design system</span>
+      <span class="pill good">Tokens only</span>
+      <h3>visionOS glass, four rings</h3>
+      <p>
+        Tokens → primitives → composed → packs, each ring constraining the one above.
+        This very page is rendered in those tokens. Registration rejects non-token values.
+      </p>
+    </div>
+  </section>
+
+  <div class="section-head">
+    <span class="eyebrow">Scope</span>
+    <h2>What it is, and is not</h2>
+  </div>
+  <section class="split">
+    <div class="panel is">
+      <h3>Surface is</h3>
+      <ul>
+        <li>A <b>kernel</b>: locked dock + retained-mode canvas + registry + broker + identity boundary + the protocol.</li>
+        <li><b>Runtime-agnostic</b> — any agent CLI drives it through an adapter.</li>
+        <li><b>Embeddable</b> in ~10 lines via <code>createSurface</code>.</li>
+        <li><b>Zero-build</b> — vanilla ESM, one runtime dep (<code>ws</code>), tests on <code>node:test</code>.</li>
+      </ul>
+    </div>
+    <div class="panel isnot">
+      <h3>Surface is not</h3>
+      <ul>
+        <li><b>Not an agent platform</b> — no agent logic, orchestration, memory, or spawning; those are borrowed.</li>
+        <li><b>Not a chat transcript</b> — the canvas is retained-mode and composable.</li>
+        <li><b>Not an API-key app</b> — auth flows through the local agent-CLI credentials.</li>
+        <li><b>Not public-by-default</b> — loopback bind + WS origin allowlist, always.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <span class="orb" aria-hidden="true" style="width:20px;height:20px;"></span>
+    <span>Surface — <a href="https://github.com/selfworking-ai/surface">selfworking-ai/surface</a></span>
+    <span class="spacer"></span>
+    <a href="docs/architecture.html">Architecture</a>
+    <a href="docs/security-model.html">Security</a>
+    <a href="LICENSE">MIT</a>
+  </footer>
+
+</div>
+</body>
+</html>

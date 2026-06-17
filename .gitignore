@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+
+# runtime artifacts
+.surface/
+sessions/
+*.log
+
+# scene build island (optional add-on; commits a prebuilt artifact, not deps)
+scenes/node_modules/
+scenes/package-lock.json
+
+# os / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# docs html mirror (generated island output kept out of source)
+docs/**/*.html

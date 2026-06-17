@@ -1,0 +1,79 @@
+{
+  "name": "@selfworking-ai/surface",
+  "version": "0.1.0",
+  "description": "Display server + protocol for agent CLIs — a locked prompt dock and a generative, composable, retained-mode canvas. LSP for agent consoles: Surface owns the surface, the runtime owns the fabric.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/selfworking-ai/surface#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/selfworking-ai/surface.git"
+  },
+  "bugs": {
+    "url": "https://github.com/selfworking-ai/surface/issues"
+  },
+  "keywords": [
+    "agent",
+    "cli",
+    "console",
+    "dashboard",
+    "claude-code",
+    "claude",
+    "operator-console",
+    "retained-mode",
+    "visionos",
+    "glass",
+    "protocol",
+    "lsp",
+    "no-build"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "surface": "./src/cli/surface.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/kernel/server.d.ts",
+      "default": "./src/kernel/server.mjs"
+    },
+    "./protocol": {
+      "types": "./src/protocol/surface-protocol.d.ts",
+      "default": "./src/protocol/messages.mjs"
+    },
+    "./adapter-sdk": {
+      "types": "./src/adapter-sdk/adapter.d.ts",
+      "default": "./src/adapter-sdk/index.mjs"
+    },
+    "./provider-sdk": {
+      "types": "./src/provider-sdk/ports.d.ts",
+      "default": "./src/provider-sdk/index.mjs"
+    },
+    "./pack-sdk": {
+      "types": "./src/pack-sdk/pack.d.ts",
+      "default": "./src/pack-sdk/index.mjs"
+    },
+    "./adapters/*": "./src/adapters/*",
+    "./providers/*": "./src/providers/*",
+    "./client/*": "./client/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "client",
+    "packs",
+    "surface.config.example.js",
+    "*.d.ts"
+  ],
+  "dependencies": {
+    "ws": "^8.21.0"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "dev": "node src/cli/surface.mjs dev",
+    "start": "node src/cli/surface.mjs dev",
+    "lint": "node --check src/kernel/server.mjs && node tools/lint.mjs",
+    "docs:build": "node scripts/build-docs.mjs"
+  }
+}

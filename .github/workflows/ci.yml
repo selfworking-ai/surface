@@ -1,0 +1,36 @@
+# CI — lint, test, and audit on every push and PR to main.
+# Surface is zero-build with a single runtime dep, so CI is intentionally small and fast.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: lint · test · audit (Node 20)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # No lockfile is committed (single dep), so fall back to `npm install`.
+      - name: Install
+        run: npm ci || npm install
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # Advisories should surface but not block the build (|| true keeps CI green-able).
+      - name: Audit
+        run: npm audit --audit-level=high || true

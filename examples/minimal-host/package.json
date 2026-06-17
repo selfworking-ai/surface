@@ -1,0 +1,13 @@
+{
+  "name": "surface-minimal-host",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The smallest host that embeds Surface (~10 lines).",
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "dependencies": {
+    "@selfworking-ai/surface": "file:../.."
+  }
+}

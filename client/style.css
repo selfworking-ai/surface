@@ -1,0 +1,327 @@
+/* Surface — the visionOS glass design system. The CONSTRAINT that makes runtime
+   generation survivable: four rings (tokens → primitives → composed → packs),
+   each constraining the one above. Registration rejects non-token values (M3).
+   Sourced from Claude.ai/design and implemented pixel-faithfully — read the
+   values, don't paraphrase. Tokens live on :root; nothing below invents new ones. */
+
+:root {
+  /* glass */
+  --glass:        rgba(255, 255, 255, 0.10);
+  --glass-strong: rgba(255, 255, 255, 0.16);
+  --glass-dock:   rgba(18, 18, 22, 0.55);
+  --hairline:     rgba(255, 255, 255, 0.22);
+  --hairline-soft:rgba(255, 255, 255, 0.12);
+  --blur:         blur(36px) saturate(1.8);
+
+  /* ink */
+  --ink:    #f6f6f8;
+  --muted:  rgba(246, 246, 248, 0.62);
+  --faint:  rgba(246, 246, 248, 0.38);
+
+  /* accent + signals */
+  --accent: #cdfb45;
+  --accent-ink: #1a2400;
+  --good: #7cffb2;
+  --warn: #ffd479;
+  --bad:  #ff8a8a;
+
+  /* geometry */
+  --r-tile: 26px;
+  --r-inner: 16px;
+  --r-dock: 30px;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+  --shadow-soft: 0 8px 28px rgba(0, 0, 0, 0.22);
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+
+body {
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  color: var(--ink);
+  overflow: hidden;
+  /* visionOS environmental backdrop — warm/cool blobs over a deep base */
+  background:
+    radial-gradient(58vw 58vw at 14% 12%, rgba(205, 251, 69, 0.16), transparent 60%),
+    radial-gradient(62vw 62vw at 86% 22%, rgba(86, 173, 255, 0.20), transparent 62%),
+    radial-gradient(70vw 70vw at 72% 96%, rgba(255, 120, 180, 0.16), transparent 60%),
+    radial-gradient(50vw 50vw at 30% 90%, rgba(120, 110, 255, 0.16), transparent 60%),
+    linear-gradient(160deg, #14161c 0%, #0c0d12 100%);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Canvas — the retained-mode surface the agent composes ───────────────── */
+#stage {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: clamp(20px, 4vh, 48px) 24px 180px;   /* bottom room for the dock */
+  display: flex;
+  justify-content: center;
+}
+#canvas {
+  width: 100%;
+  max-width: 1080px;
+  margin: auto 0;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+#canvas.paint { animation: rise 0.42s cubic-bezier(0.22, 1, 0.36, 1); }
+/* a freshly mounted component rises in; updates do not re-animate (retained-mode) */
+.mounted { animation: rise 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* v2 scene surface — an optional Remotion player sits where the canvas would */
+#player-root { width: 100%; max-width: 1080px; margin: auto 0; aspect-ratio: 16 / 9;
+  border-radius: var(--r-tile); overflow: hidden; box-shadow: var(--shadow); }
+#player-root[hidden] { display: none; }
+#player-root.past { filter: saturate(0.5) brightness(0.8); }
+
+/* ── Bento grid — the layout vocabulary (default canvas layout + render()) ─── */
+.bento, #canvas.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 4), 1fr);
+  grid-auto-rows: minmax(128px, auto);
+  gap: 16px;
+}
+.tile {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline-soft);
+  border-radius: var(--r-tile);
+  box-shadow: var(--shadow-soft);
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+.tile.lg   { grid-column: span 2; }
+.tile.tall { grid-row: span 2; }
+.tile.hero {
+  grid-column: 1 / -1;
+  background: var(--glass-strong);
+  border-color: var(--hairline);
+  box-shadow: var(--shadow);
+}
+
+/* tile / primitive contents */
+.tile .label {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--faint);
+}
+.tile .value { font-size: clamp(26px, 3vw, 40px); font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; }
+.tile.hero .value { font-size: clamp(32px, 4vw, 56px); }
+.tile p { margin: 0; color: var(--muted); }
+.tile .list { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.tile .list li { position: relative; padding-left: 18px; color: var(--ink); }
+.tile .list li::before { content: ""; position: absolute; left: 2px; top: 9px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.tile .kv { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--hairline-soft); }
+.tile .kv:last-child { border-bottom: 0; }
+.tile .kv span:first-child { color: var(--muted); }
+.tile .kv span:last-child { font-weight: 600; text-align: right; }
+.tile a { color: var(--accent); text-decoration: none; }
+.tile .delta { font-size: 13px; font-weight: 600; }
+.tile .delta.good { color: var(--good); }
+.tile .delta.warn { color: var(--warn); }
+.tile .delta.bad  { color: var(--bad); }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; align-self: flex-start;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 600;
+  background: var(--glass-strong); border: 1px solid var(--hairline-soft); color: var(--ink);
+}
+.pill.good { background: rgba(124, 255, 178, 0.16); border-color: rgba(124, 255, 178, 0.4); color: var(--good); }
+.pill.warn { background: rgba(255, 212, 121, 0.16); border-color: rgba(255, 212, 121, 0.4); color: var(--warn); }
+.pill.bad  { background: rgba(255, 138, 138, 0.16); border-color: rgba(255, 138, 138, 0.4); color: var(--bad); }
+
+@media (max-width: 720px) { .bento, #canvas.grid { grid-template-columns: repeat(2, 1fr); } .tile.lg, .tile.hero { grid-column: 1 / -1; } }
+
+/* first-run / empty surface */
+.surface-empty { display: grid; place-items: center; min-height: 50vh; text-align: center; }
+.surface-empty .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
+.surface-empty h1 { margin: 10px 0 6px; font-size: clamp(28px, 5vw, 48px); font-weight: 700; letter-spacing: -0.03em; }
+.surface-empty p { margin: 0; color: var(--muted); max-width: 30ch; }
+
+/* ── Topbar cluster (session chip + mode + new) — persistent chrome ───────── */
+#topbar { position: fixed; top: 18px; right: 18px; z-index: 30; display: flex; align-items: flex-start; gap: 10px; }
+.chip {
+  display: flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+  background: var(--glass-dock); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline-soft); box-shadow: var(--shadow-soft);
+  color: var(--muted); cursor: pointer; user-select: none; font: inherit;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.chip:hover { color: var(--ink); border-color: var(--hairline); }
+.chip[hidden] { display: none; }                      /* gotcha G6: beat the class */
+.chip svg { width: 14px; height: 14px; }
+#session-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px rgba(205, 251, 69, 0.6); }
+.sc-label { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); }
+.sc-id { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; font-weight: 600; color: var(--ink); letter-spacing: 0.02em; }
+#mode-chip .sc-id { text-transform: capitalize; font-family: inherit; }
+
+/* ── Locked prompt dock — the kernel's syscall interface (the ONE input) ──── */
+#dock {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  width: min(720px, calc(100vw - 40px));
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px;
+  background: var(--glass-dock);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--r-dock);
+  box-shadow: var(--shadow);
+  z-index: 25;                       /* above the drawing overlay (#draw, z5) */
+}
+.dock-row { display: flex; align-items: flex-end; gap: 10px; }
+.dock-btn {
+  flex: none; width: 38px; height: 38px; border: 1px solid var(--hairline-soft); border-radius: 50%; cursor: pointer;
+  background: transparent; color: var(--muted); display: grid; place-items: center; transition: all 0.14s ease;
+}
+.dock-btn:hover { color: var(--ink); border-color: var(--hairline); background: var(--glass); }
+.dock-btn.active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.dock-btn[hidden] { display: none; }
+.dock-btn svg { width: 18px; height: 18px; }
+#prompt {
+  flex: 1; border: 0; outline: 0; resize: none;
+  background: transparent; color: var(--ink);
+  font: inherit; line-height: 1.5; max-height: 160px; padding: 9px 0;
+}
+#prompt::placeholder { color: var(--faint); }
+#prompt:disabled { opacity: 0.5; }
+#send {
+  flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center; transition: transform 0.12s ease, opacity 0.2s ease;
+}
+#send:hover { transform: scale(1.06); }
+#send:disabled { opacity: 0.4; cursor: default; transform: none; }
+#send svg { width: 20px; height: 20px; }
+
+/* freehand drawing overlay — above the canvas, below the dock/cards.
+   width/height MUST be pinned to the viewport (the backing store is sized to
+   innerWidth×devicePixelRatio; without an explicit CSS size it would display at
+   device-pixel size — 2× on Retina — and double every coordinate). */
+#draw { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 5; pointer-events: none; touch-action: none; }
+body.drawing #draw { pointer-events: auto; cursor: crosshair; }
+body.drawing #stage { cursor: crosshair; }
+
+/* time-travel seek bar — video-scrubber style, lives inside the dock */
+#seek { display: flex; align-items: center; gap: 12px; padding: 2px 8px 0 10px; }
+#seek[hidden] { display: none; }
+.seek-span { flex: none; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--faint); white-space: nowrap; }
+.seek-track { position: relative; flex: 1; height: 18px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+.seek-track::before { content: ""; position: absolute; left: 0; right: 0; height: 4px; border-radius: 999px; background: var(--hairline); }
+.seek-fill { position: absolute; left: 0; height: 4px; border-radius: 999px; background: var(--accent); pointer-events: none; }
+.seek-tick { position: absolute; top: 50%; width: 3px; height: 3px; margin-top: -1.5px; border-radius: 50%; background: rgba(255, 255, 255, 0.55); transform: translateX(-50%); pointer-events: none; }
+.seek-thumb { position: absolute; top: 50%; width: 13px; height: 13px; margin-top: -6.5px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(205, 251, 69, 0.25), 0 2px 6px rgba(0, 0, 0, 0.4); transform: translateX(-50%); pointer-events: none; }
+.seek-now { flex: none; border: 0; background: transparent; color: var(--faint); font: inherit; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; white-space: nowrap; cursor: pointer; padding: 2px; }
+.seek-now.live { color: var(--accent); cursor: default; }
+.seek-now:hover:not(.live) { color: var(--ink); }
+
+/* ── Status pill (quiet; hidden when idle) ─────────────────────────────────── */
+#status {
+  position: fixed; left: 50%; bottom: 116px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 15px; border-radius: 999px;
+  background: var(--glass-dock); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline-soft); color: var(--muted); font-size: 12.5px; font-weight: 600;
+}
+#status[hidden] { display: none; }                  /* gotcha G6: beat the class */
+#status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.35; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.15); } }
+
+/* ── Streaming activity feed (bottom-left) ─────────────────────────────────── */
+#toolfeed { position: fixed; left: 18px; bottom: 22px; z-index: 25; width: 256px;
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none; transition: opacity 0.5s ease; }
+#toolfeed[hidden] { display: none; }                 /* gotcha G6: beat the class */
+#toolfeed.fading { opacity: 0; }
+.tf-row {
+  display: flex; align-items: center; gap: 8px; max-width: 100%;
+  padding: 6px 12px; border-radius: 999px;
+  background: var(--glass-dock); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline-soft); box-shadow: var(--shadow-soft);
+  font-size: 12px; font-weight: 600; color: var(--muted);
+  opacity: 0; transform: translateX(-8px); transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.tf-row.in { opacity: 1; transform: none; }
+.tf-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+.tf-name { flex: none; color: var(--ink); }
+.tf-arg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--faint); font-weight: 500; font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* ── Context meter (bottom-right) — model · tokens · context fill · % ──────── */
+#meter { position: fixed; right: 18px; bottom: 22px; z-index: 25; width: 190px;
+  padding: 10px 13px; border-radius: var(--r-inner);
+  background: var(--glass-dock); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline-soft); box-shadow: var(--shadow-soft);
+  display: flex; flex-direction: column; gap: 7px; }
+#meter[hidden] { display: none; }                    /* gotcha G6: beat the class */
+.mt-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.mt-model { font-size: 12px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mt-pct { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.mt-bar { height: 5px; border-radius: 999px; background: var(--hairline-soft); overflow: hidden; }
+.mt-fill { height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width 0.4s ease, background 0.3s ease; }
+.mt-tokens { font-size: 10.5px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+#meter.warn .mt-fill { background: var(--warn); }
+#meter.warn .mt-pct  { color: var(--warn); }
+#meter.bad .mt-fill  { background: var(--bad); }
+#meter.bad .mt-pct   { color: var(--bad); }
+
+/* ── Card layer (permission + ask decision cards) ──────────────────────────── */
+#cards {
+  position: fixed; left: 50%; bottom: 140px; transform: translateX(-50%);
+  width: min(560px, calc(100vw - 40px)); display: flex; flex-direction: column; gap: 12px; z-index: 20;
+}
+#cards:empty { display: none; }
+.card {
+  background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--hairline); border-radius: var(--r-tile); box-shadow: var(--shadow);
+  padding: 20px 22px; animation: rise 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin-bottom: 6px; }
+.card h3 { margin: 0 0 4px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.card .sub { margin: 0 0 14px; color: var(--muted); font-size: 13.5px; }
+.card .mono { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; color: var(--ink);
+  background: rgba(0, 0, 0, 0.28); border: 1px solid var(--hairline-soft); border-radius: var(--r-inner);
+  padding: 11px 13px; margin: 0 0 14px; white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow: auto; }
+.card .row { display: flex; flex-wrap: wrap; gap: 10px; }
+.card .field { display: flex; gap: 10px; width: 100%; }
+.card .field input {
+  flex: 1; border: 1px solid var(--hairline); border-radius: 999px; background: rgba(0,0,0,0.25);
+  color: var(--ink); font: inherit; padding: 9px 16px; outline: 0;
+}
+
+.btn {
+  border: 1px solid var(--hairline); border-radius: 999px; cursor: pointer;
+  font: inherit; font-weight: 600; font-size: 13.5px; padding: 9px 18px;
+  background: var(--glass); color: var(--ink); transition: transform 0.1s ease, background 0.15s ease;
+}
+.btn:hover { transform: translateY(-1px); background: var(--glass-strong); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.btn.ghost { background: transparent; color: var(--muted); }
+
+/* ── Gate (first-run mode pick) ────────────────────────────────────────────── */
+#gate { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center;
+  background: rgba(8, 9, 12, 0.5); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+#gate[hidden] { display: none; }
+#gate .card { width: min(440px, calc(100vw - 40px)); text-align: left; }
+#gate .row { flex-direction: column; }
+#gate .btn { width: 100%; text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 13px 18px; }
+#gate .btn small { font-weight: 500; color: var(--muted); }
+#gate .btn.primary small { color: rgba(26, 36, 0, 0.7); }
+
+/* viewing a past frame — gently desaturate to signal "this is history" */
+#canvas.past { filter: saturate(0.5) brightness(0.8); }
+
+/* ── Toast (errors) ────────────────────────────────────────────────────────── */
+#toast { position: fixed; top: 22px; left: 50%; transform: translateX(-50%); z-index: 50;
+  display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.toast { background: rgba(255, 138, 138, 0.16); border: 1px solid rgba(255, 138, 138, 0.4); color: var(--ink);
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  padding: 10px 16px; border-radius: 14px; font-size: 13px; box-shadow: var(--shadow-soft); animation: rise 0.25s ease; max-width: 80vw; }
