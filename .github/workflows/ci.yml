@@ -21,7 +21,8 @@ jobs:
         with:
           node-version: 20
 
-      # No lockfile is committed (single dep), so fall back to `npm install`.
+      # A package-lock.json is committed, so `npm ci` gives a reproducible install.
+      # (|| npm install kept as a safety net if the lockfile ever drifts.)
       - name: Install
         run: npm ci || npm install
 
@@ -34,3 +35,26 @@ jobs:
       # Advisories should surface but not block the build (|| true keeps CI green-able).
       - name: Audit
         run: npm audit --audit-level=high || true
+
+  # Playwright UI smoke island — its own job so a browser flake never blocks the unit lane.
+  # The @playwright/test dep is dev-only; it is NOT shipped in the published package.
+  e2e:
+    name: e2e (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install
+        run: npm ci || npm install
+
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E (smoke)
+        run: npm run e2e

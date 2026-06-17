@@ -1,6 +1,6 @@
 # dependencies
 node_modules/
-package-lock.json
+# package-lock.json IS committed (reproducible `npm ci` in CI). Other PMs' locks are not.
 pnpm-lock.yaml
 yarn.lock
 
@@ -28,3 +28,7 @@ Team/
 
 # Playwright MCP scratch snapshots (local browser-verification only)
 .playwright-mcp/
+
+# Playwright e2e island run artifacts (the spec + config are committed; output is not)
+test-results/
+playwright-report/

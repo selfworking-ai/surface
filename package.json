@@ -1,6 +1,6 @@
 {
   "name": "@selfworking-ai/surface",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Display server + protocol for agent CLIs — a locked prompt dock and a generative, composable, retained-mode canvas. LSP for agent consoles: Surface owns the surface, the runtime owns the fabric.",
   "type": "module",
   "license": "MIT",
@@ -70,11 +70,15 @@
   "dependencies": {
     "ws": "^8.21.0"
   },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
+  },
   "scripts": {
     "test": "node --test test/",
     "dev": "node src/cli/surface.mjs dev",
     "start": "node src/cli/surface.mjs dev",
     "lint": "node --check src/kernel/server.mjs && node tools/lint.mjs",
-    "docs:build": "node scripts/build-docs.mjs"
+    "docs:build": "node scripts/build-docs.mjs",
+    "e2e": "playwright test -c e2e/playwright.config.mjs"
   }
 }

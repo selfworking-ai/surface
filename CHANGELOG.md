@@ -59,7 +59,7 @@ No new milestone; no public API change. Protocol version `1` (unchanged).
 
 ### Testing
 
-- Coverage **107 → 179** tests on `node:test`. New committed suites close the audit's central
+- Coverage **107 → 181** tests on `node:test`. New committed suites close the audit's central
   finding (the real-runtime + client half had no automated coverage):
   - `test/mcp-side-channel.test.mjs` — `/mcp/*` e2e: per-turn token / `409` gate,
     `/mcp/event`→WS patch, the `ask` + permission HTTP round-trips, on-connect resume.
@@ -72,8 +72,14 @@ No new milestone; no public API change. Protocol version `1` (unchanged).
 - Two pure cores were extracted (behavior-preserving, now consumed by their callers) to make
   the previously browser-only logic node-testable: `client/reconciler-core.mjs` (consumed by
   `client/kernel.js`) and `src/adapters/mcp/validators.mjs` (consumed by `surface-console.mjs`).
-- A committed Playwright smoke island + a committed lockfile land in this release; if a
-  separate release step finalizes them, this line is updated to match.
+- A committed **Playwright smoke island** (`e2e/`, behind the `@playwright/test` dev
+  dependency) covering boot, scene playback, update-in-place, two-tabs, and a
+  zero-console-errors assertion — wired into CI as a **separate `e2e` job** so a browser
+  flake never blocks the unit lane.
+- A committed **`package-lock.json`** for a reproducible `npm ci` (CI now installs from the
+  lockfile instead of the previous `npm ci || npm install` fallback). The runtime footprint is
+  unchanged: `ws` remains the sole runtime dependency; `@playwright/test` is dev-only and is
+  not in the published tarball.
 
 ### Notes
 
