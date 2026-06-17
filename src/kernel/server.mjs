@@ -35,6 +35,7 @@ import { defaultPrincipal, capabilityToken } from "./identity.mjs";
 import { modeAllowsGeneration } from "./permissions.mjs";
 import { FileStore } from "../providers/store-file.mjs";
 import { isValidSessionId } from "../providers/store-file.mjs";
+import { installPack } from "../pack-sdk/index.mjs";
 
 // ── Module constants (declared above any boot/closure that reads them — G5) ─────
 
@@ -130,6 +131,12 @@ export function createSurface(config = {}) {
 
   // ── Per-instance turn state (single active turn / one client — see header) ────
   const workspace = new Workspace({ store });
+  // Starter pack (M5): seed the initial composition on boot. A returning session's
+  // saved workspace replaces this via workspace.load(); fresh sessions start here.
+  if (config.pack) {
+    try { installPack(config.pack, { workspace, registry }); }
+    catch (err) { console.error("[surface] pack install failed:", err?.message ?? err); }
+  }
   let sessionId = null;                  // captured ONCE from the adapter (G11)
   let turnInFlight = false;
   let currentAbort = null;               // AbortController for the in-flight turn

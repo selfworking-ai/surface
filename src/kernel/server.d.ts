@@ -8,6 +8,7 @@
 import type { AgentAdapter, Principal } from "../adapter-sdk/adapter";
 import type { StorageProvider, AuditSink, AuthProvider, IdentityProvider, ProviderSet } from "../provider-sdk/ports";
 import type { Mode, ServerMsg } from "../protocol/surface-protocol";
+import type { PackModule } from "../pack-sdk/pack";
 
 /** Configuration for {@link createSurface}. Only `adapter` is required. */
 export interface SurfaceConfig {
@@ -48,6 +49,8 @@ export interface SurfaceConfig {
   broker?: import("./broker").Broker;
   /** Optional pre-built component registry (else the kernel makes one). */
   registry?: import("./registry").Registry;
+  /** Starter pack (M5): seeds the initial canvas composition on boot. */
+  pack?: PackModule;
 }
 
 /** A running Surface kernel. */
