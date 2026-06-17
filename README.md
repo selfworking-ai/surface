@@ -112,27 +112,40 @@ The kernel renders whatever the connected runtime supports and quietly hides the
 - **Glass design system** — a visionOS glass token system (lime accent, warm/cool backdrop,
   blur 36px / saturate 1.8, concentric radii). Registration rejects non-token values.
 
+> **Identity & auth status (be honest about this).** The identity/permission boundary is the
+> kernel *contract* — provider **ports**, the containment grant rule (`component.caps ⊆
+> mode.grantable ⊆ principal.ceiling`), the audit anchor, a real Google OIDC config-gated
+> *builder*, and a mock-tested identity plane all ship. The **end-to-end auth flow is not yet
+> operable**: there is no HTTP `/auth` route and no connection↔principal binding, the WebAuthn
+> verifier intentionally throws (signature crypto is a deferred vetted island), and the OIDC
+> path has not been exercised against live Google. Today Surface runs single-operator on
+> loopback; multi-tenant authentication is architecture, not a working login.
+
 ---
 
 ## Milestone status
 
-Surface ships in independently shippable milestones. **v0.1 is M1: the kernel core.**
+Surface ships in independently shippable milestones. **The full M0–M7 plan has shipped**
+(v0.3.0); the current release is **v0.3.1**, an audit-fix release.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| **M0** | Repo & rails: license, package, CI, docs skeleton, test harness | ✅ shipped |
+| **M0** | Repo & rails: license, package, CI, docs skeleton, test harness | ✅ shipped (v0.1) |
 | **M1** | **Kernel core** — retained-mode canvas + reconciler, versioned protocol, origin-allowlisted WS hub, file store, locked dock, echo adapter | ✅ shipped (v0.1) |
-| M2 | Adapter SDK + Claude Code adapter + capability negotiation | ▫ planned |
-| M3 | Design system + components + data broker | ▫ planned |
-| M4 | Provider plane + multi-tenant identity | ▫ planned |
-| M5 | Packs (the app system) | ▫ planned |
-| M6 | Org projection + a second runtime (prove agnosticism) | ▫ planned |
-| M7 | Component-smith + gardener (signal-gated self-improvement) | ▫ planned |
+| **M2** | Adapter SDK + Claude Code adapter + capability negotiation | ✅ shipped (v0.2) |
+| **M3** | Design system + components + data broker | ✅ shipped (v0.2) |
+| **M4** | Provider plane + multi-tenant identity | ✅ shipped (v0.2) |
+| **M5** | Packs (the app system) | ✅ shipped (v0.2) |
+| **M6** | Org projection + a second runtime (prove agnosticism) | ✅ shipped (v0.3) |
+| **M7** | Component-smith + gardener (signal-gated self-improvement) | ✅ shipped (v0.3) |
 
-**M1 delivers:** a retained-mode canvas + reconciler, the Surface Protocol (versioned
+**The M1 kernel core** — a retained-mode canvas + reconciler, the Surface Protocol (versioned
 envelope + negotiation), an origin-allowlisted `127.0.0.1` WS hub, a file-backed
-`StorageProvider`, a locked dock with time-travel, and a hardcoded echo adapter — enough
-for another project to `npm i`, mount, and get a live console.
+`StorageProvider`, a locked dock with time-travel, and a hardcoded echo adapter — is enough
+on its own for another project to `npm i`, mount, and get a live console; M2–M7 layer the
+real runtime adapter, design system, provider plane, packs, org mode, and self-improvement on
+top (see the [CHANGELOG](CHANGELOG.md) and the auth-status note above for what's operable vs.
+scaffolding).
 
 ---
 

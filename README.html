@@ -10,6 +10,10 @@
   assets or CDNs. It DOGFOODS the design system: the :root token block below is copied
   verbatim from client/style.css (the four-rings contract), so this page is itself a
   faithful rendering of the visionOS glass language it documents.
+
+  Doc links below point at the committed docs/*.md (which render on GitHub and survive a
+  fresh clone), NOT docs/*.html — the .html mirror is build-docs output and is gitignored,
+  so .html links would 404 on a clean checkout / GitHub Pages. Keep them .md.
 -->
 <style>
   :root {
@@ -218,8 +222,8 @@
     <span class="name">Surface</span>
     <span class="spacer"></span>
     <nav>
-      <a href="docs/getting-started.html">Docs</a>
-      <a href="docs/protocol-spec.html">Protocol</a>
+      <a href="docs/getting-started.md">Docs</a>
+      <a href="docs/protocol-spec.md">Protocol</a>
       <a href="https://github.com/selfworking-ai/surface">GitHub</a>
     </nav>
   </header>
@@ -236,7 +240,7 @@
       orchestration are borrowed from the runtime through an adapter.
     </p>
     <div class="cta">
-      <a class="btn primary" href="docs/getting-started.html">Get started</a>
+      <a class="btn primary" href="docs/getting-started.md">Get started</a>
       <a class="btn" href="https://github.com/selfworking-ai/surface">View on GitHub</a>
     </div>
   </section>
@@ -329,12 +333,22 @@ console.<span class="f">log</span>(<span class="s">`Surface live at ${url}`</spa
     </div>
   </section>
 
+  <p style="color: var(--muted); font-size: 13.5px; line-height: 1.6; max-width: 78ch; margin: 0 0 clamp(40px, 8vh, 84px);">
+    <b style="color: var(--ink);">Identity &amp; auth status.</b> The identity/permission boundary
+    is the kernel <i>contract</i> — provider ports, the containment grant rule, the audit anchor, a
+    config-gated Google OIDC builder, and a mock-tested identity plane all ship. The end-to-end auth
+    flow is <b style="color: var(--ink);">not yet operable</b>: there is no HTTP <code>/auth</code>
+    route or connection↔principal binding, the WebAuthn verifier intentionally throws (signature
+    crypto is a deferred vetted island), and OIDC has not been exercised against live Google. Surface
+    runs single-operator on loopback today; multi-tenant authentication is architecture, not a login.
+  </p>
+
   <footer>
     <span class="orb" aria-hidden="true" style="width:20px;height:20px;"></span>
     <span>Surface — <a href="https://github.com/selfworking-ai/surface">selfworking-ai/surface</a></span>
     <span class="spacer"></span>
-    <a href="docs/architecture.html">Architecture</a>
-    <a href="docs/security-model.html">Security</a>
+    <a href="docs/architecture.md">Architecture</a>
+    <a href="docs/security-model.md">Security</a>
     <a href="LICENSE">MIT</a>
   </footer>
 

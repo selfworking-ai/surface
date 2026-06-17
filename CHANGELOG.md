@@ -13,8 +13,80 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 _Future (none block the core; all documented): the M4 auth remainder (HTTP auth flow +
 connection↔principal correlation, operator-gated install UI, a vetted WebAuthn verifier);
-`api-reference.md` + `migration-from-body.md`; an accessibility pass on the dock/primitives +
-a committed Playwright e2e island._
+`api-reference.md` + `migration-from-body.md`; an accessibility pass on the dock/primitives;
+and the multi-client milestone (per-card principal checks on `answer`/`decision`, a
+stuck-turn affordance) — see Known limitations below._
+
+## [0.3.1] — 2026-06-18
+
+An **audit-fix release**: closes the two shipped, user-visible P0 bugs found auditing
+v0.3.0, fixes the contract-accuracy (`.d.ts`) drift, and closes the coverage asymmetry the
+audit surfaced (the real-runtime wire + the client reconciler had zero automated coverage).
+No new milestone; no public API change. Protocol version `1` (unchanged).
+
+### Fixed
+
+**P0 — shipped, user-visible**
+
+- **`scene()` blank box.** The Claude adapter no longer offers the `scene` tool (pulled from
+  `ALLOWED_TOOLS` + the MCP tool def/dispatch in `src/adapters/{claude-code,mcp/surface-console}.mjs`)
+  because no client scene renderer ships, and the client now guards every scene path — the
+  `window.SurfaceScenes` check moved above `showSceneView()` in `playScene()`, and the
+  `renderLive()`/`renderSnapshot()` scene branches gate on a renderer being present. The
+  canvas can no longer blank.
+- **Packs orphaned + config no-op.** `createSurface` now reads **`config.packs`** (array,
+  canonical) with **`config.pack`** kept as a back-compat alias, installing each pack in its
+  own try/catch (`src/kernel/server.mjs`). Zero-config `surface dev` now seeds the
+  **mission-control** starter pack so the boot canvas is composed, not empty
+  (`src/cli/surface.mjs`). `package.json` `exports` adds `./packs/*` so packs are importable,
+  and `surface.config.example.js` + `examples/minimal-host` now wire a pack (uncommenting the
+  example works).
+
+**P2 — contract accuracy (the `.d.ts` matches the runtime now)**
+
+- `TurnContext` (`src/adapter-sdk/adapter.d.ts`) documents the load-bearing `capabilityToken`
+  and `sideChannel` fields that were live on `ctx` but absent from the type.
+- Removed the dead `recall` `ClientMsg` from `src/protocol/surface-protocol.d.ts` — it was a
+  no-op on both ends; time-travel recall works via the `recalled:` field on patch/render and
+  the `/mcp/recall` side-channel tool.
+- Corrected the stale `mapClaudeEvent` comment in `src/adapters/claude-code.mjs`.
+- The reconciler "identical semantics" claim now documents the one tested divergence: an
+  `update`/`remove` of an unknown id **no-ops on the client** but is **rejected (with a
+  `render-error` signal) on the server**.
+- Fixed the resume race: a turn awaits any pending `workspace.load()` before mutating the
+  document, so a `--resume` rehydration can no longer clobber just-mounted components
+  (`src/kernel/server.mjs`).
+
+### Testing
+
+- Coverage **107 → 179** tests on `node:test`. New committed suites close the audit's central
+  finding (the real-runtime + client half had no automated coverage):
+  - `test/mcp-side-channel.test.mjs` — `/mcp/*` e2e: per-turn token / `409` gate,
+    `/mcp/event`→WS patch, the `ask` + permission HTTP round-trips, on-connect resume.
+  - `test/ndjson.test.mjs` — G4: `splitLines` + `readNdjson` cross-chunk / final-flush /
+    CRLF / noise tolerance.
+  - `test/reconciler-core.test.mjs` — the extracted DOM-free `client/reconciler-core.mjs`:
+    op semantics, client/server parity, and the SX-2 live / time-travel state machine.
+  - `test/mcp-validators.test.mjs` — the extracted `src/adapters/mcp/validators.mjs`: every
+    validator throw-path incl. the G3 deny-on-error default.
+- Two pure cores were extracted (behavior-preserving, now consumed by their callers) to make
+  the previously browser-only logic node-testable: `client/reconciler-core.mjs` (consumed by
+  `client/kernel.js`) and `src/adapters/mcp/validators.mjs` (consumed by `surface-console.mjs`).
+- A committed Playwright smoke island + a committed lockfile land in this release; if a
+  separate release step finalizes them, this line is updated to match.
+
+### Notes
+
+- **Known limitations (deferred to the multi-client milestone).** Both stem from the
+  single-active-turn / one-client assumption (SX-8) and are safe today under the loopback +
+  single-operator posture:
+  - No principal check on `answer`/`decision` — a second connection could answer another
+    connection's card.
+  - No stuck-turn affordance — a pending `ask` pins the turn (and a live runtime subprocess)
+    until `ASK_TIMEOUT_MS`.
+
+  Both are tracked for the multi-client milestone, where multi-tenant identity becomes
+  operable.
 
 ## [0.3.0] — 2026-06-17
 
@@ -144,7 +216,8 @@ embeddable, tested core. Protocol version `1`.
 - Three connection modes (`operator` / `team` / `visitor`); `visitor` is generation-OFF,
   tools-NONE, curated-pack-only.
 
-[Unreleased]: https://github.com/selfworking-ai/surface/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/selfworking-ai/surface/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/selfworking-ai/surface/releases/tag/v0.3.1
 [0.3.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.3.0
 [0.2.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.2.0
 [0.1.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.1.0

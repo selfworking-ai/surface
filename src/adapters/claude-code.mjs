@@ -106,15 +106,19 @@ they actually marked.`;
 
 // ── mapClaudeEvent — PURE: one raw stream-json object → one TurnEvent or null ────
 // Factored out (and named-exported) so it's unit-testable without spawning a real
-// `claude`. Returns at most ONE event. For an `assistant` message that carries
-// several tool_use blocks, the run loop calls this PER content block (passing a
-// synthetic {type:"assistant", message:{content:[oneBlock]}}); see run() below.
+// `claude`. Called ONCE per raw stream record by run() (NOT re-fed per content
+// block), and returns at most ONE TurnEvent. For a resolved `assistant` message
+// carrying several tool_use blocks it returns only the FIRST as a tool_call; the
+// rest are NOT lost — each tool_use is already surfaced LIVE the instant it starts
+// via the content_block_start streaming branch below (G2's --include-partial-
+// messages). So the resolved-message mapping is a fallback for the activity feed,
+// not a per-block re-feed.
 //
 // Mappings:
-//   system/init                         → session_started {id}  (+ surfaces model via usage? no — see below)
+//   system/init                         → session_started {id}
 //   stream_event content_block_start    → tool_call {id, name, args}   (the instant a tool_use begins)
-//     (tool_use only)
-//   assistant message tool_use block    → tool_call {id, name, args}   (resolved input)
+//     (tool_use blocks only)
+//   assistant message first tool_use    → tool_call {id, name, args}   (resolved input; fallback)
 //   assistant|result usage              → usage {model, inputTokens, outputTokens}
 //   anything else                       → null
 export function mapClaudeEvent(evt) {
@@ -140,10 +144,12 @@ export function mapClaudeEvent(evt) {
   }
 
   // Resolved assistant message. It can carry usage AND tool_use blocks. We return
-  // ONE event, preferring a tool_call (the visible activity) over usage; the run
-  // loop re-feeds per block, and also handles usage from the result event. To keep
-  // the function single-purpose and testable, the priority is: first tool_use
-  // block present → tool_call; else if usage present → usage; else null.
+  // exactly ONE event, with priority: first tool_use block → tool_call; else usage
+  // present → usage; else null. Only the FIRST tool_use is surfaced here, but any
+  // additional tool_use blocks were already emitted live by the content_block_start
+  // branch above, so the activity feed is complete — this branch is a fallback, not
+  // a per-block re-feed (the run loop calls this once per record). Usage for the
+  // whole turn also arrives separately via the final `result` event below.
   if (evt.type === "assistant" && evt.message && typeof evt.message === "object") {
     const content = Array.isArray(evt.message.content) ? evt.message.content : [];
     const toolUse = content.find((b) => b?.type === "tool_use");

@@ -129,9 +129,13 @@ runtime on spawn. The runtime enforces **attenuation within its agent tree**
 - A **workspace document** holds the durable composition; the **frames log** is
   turn history for time-travel (kept from `body`). Two distinct stores.
 - A tiny vanilla DOM **reconciler** keyed by component id diffs and applies patches.
-  The server-side reconciler (`reconciler.mjs`, pure) and the client DOM reconciler
-  implement **identical op semantics**: mount = upsert, update = shallow-merge,
-  remove = delete, layout = merge.
+  The server reconciler (`reconciler.mjs`, pure) and the client core
+  (`client/reconciler-core.mjs`, pure, consumed by `kernel.js`) share the same op
+  semantics: mount = upsert, update = shallow-merge, remove = delete, layout = merge.
+  **One documented divergence** (tested both ways): an update/remove of an *unknown
+  id* is a no-op on the client (returns `{action:"noop", reason}`) but is *rejected*
+  on the server (pushed to `rejected`, surfaced as a `render-error` signal). Low
+  impact (the server filters before broadcast); asserted in `test/reconciler-core.test.mjs`.
 
 ### Design system — four rings
 

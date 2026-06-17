@@ -152,6 +152,7 @@ export function createSurface(config = {}) {
   let currentAbort = null;               // AbortController for the in-flight turn
   let currentCtx = null;                 // active turn's TurnContext — reached by the loopback /mcp side channel
   let turnToken = null;                  // per-turn bearer scoping /mcp/* to the spawned runtime (M2)
+  let pendingLoad = null;                // resume's workspace.load(), awaited before a turn mutates the doc (resume race)
   let activePrincipal = principal;       // the principal attributed for the in-flight turn (M4)
   let liveFrame = null;                  // { prompt, ts, kind?, html?, spec? }
   let drawingPresent = false;            // user has a freehand annotation on screen
@@ -366,6 +367,9 @@ export function createSurface(config = {}) {
   async function runTurn(text, mode, who) {
     if (turnInFlight) { broadcast({ type: "error", message: "still processing" }); return; }
     turnInFlight = true;
+    // If a resume is still loading the prior workspace, let it finish (and adopt
+    // the resumed sessionId) BEFORE this turn mounts anything — the resume race.
+    if (pendingLoad) { try { await pendingLoad; } catch { /* load failed — proceed with current doc */ } }
     activePrincipal = who || principal;
     currentAbort = new AbortController();
     liveFrame = { prompt: text, ts: new Date().toISOString(), kind: null, html: null, spec: null };
@@ -448,9 +452,13 @@ export function createSurface(config = {}) {
         if (!sessionId && isValidSessionId(msg.sessionId)) {
           sessionId = msg.sessionId;
           workspace.setSession(sessionId);
-          workspace.load().then(() => {
-            broadcast({ type: "patch", ops: workspace.toOps() });
-          }).catch(() => {});
+          // Track this load so a fast follow-up prompt awaits it before mutating
+          // the workspace — else restore() wholesale-replaces this.doc and clobbers
+          // the turn's just-mounted components (the resume race). G12.
+          pendingLoad = workspace.load()
+            .then(() => { broadcast({ type: "patch", ops: workspace.toOps() }); })
+            .catch(() => {})
+            .finally(() => { pendingLoad = null; });
         }
         break;
       }
@@ -493,9 +501,6 @@ export function createSurface(config = {}) {
       }
       case "abort":
         abortTurn();
-        break;
-      case "recall":
-        // M1: the browser does time-travel itself from /api/history. No-op here.
         break;
       case "event": {
         if (msg.name === "drawing-state") {

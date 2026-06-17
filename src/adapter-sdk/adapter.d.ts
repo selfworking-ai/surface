@@ -53,6 +53,18 @@ export interface TurnContext {
   mode: "operator" | "team" | "visitor";
   /** The authenticated principal (or null in single-operator mode). */
   principal: Principal | null;
+  /**
+   * Opaque capability token for the attributed principal (base64url). Carried
+   * into the runtime on spawn so every runtime action can be attributed +
+   * attenuated against the principal's ceiling. See identity.capabilityToken().
+   */
+  capabilityToken: string;
+  /**
+   * Loopback side channel for runtimes that present OUT-OF-BAND (e.g. the Claude
+   * adapter's MCP server POSTs presentation/decisions to `${baseUrl}/mcp/*`
+   * with the per-turn `token`). `session` is the live session id (getter).
+   */
+  sideChannel: { baseUrl: string; token: string; readonly session: string | null };
   /** Surface a decision card and await the user's choice. Blocks the turn. */
   ask(question: string, options: AskOption[], context?: string): Promise<AskAnswer>;
   /** Surface an Approve/Deny permission card and await the decision. */

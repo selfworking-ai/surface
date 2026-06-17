@@ -94,8 +94,6 @@ export type ClientMsg =
   | { type: "resume"; sessionId: string }
   /** Lock the working mode for the connection (operator | team | visitor). */
   | { type: "mode"; mode: Mode }
-  /** Re-surface a past frame by turn number (time-travel; read-only look-back). */
-  | { type: "recall"; n: number }
   /** Abort the in-flight turn. */
   | { type: "abort" }
   /**
