@@ -1,0 +1,9 @@
+{
+  "_comment": "Reference shape of the --mcp-config the Claude Code adapter writes at runtime. The adapter (claude-code.mjs) generates this dynamically under os.tmpdir() with the absolute path to mcp/surface-console.mjs resolved from its own module URL, and passes the side-channel URL + per-turn token via the spawn ENV (SURFACE_MCP_URL / SURFACE_MCP_TOKEN) — so this file holds no secrets and is static. Committed only as documentation; not loaded.",
+  "mcpServers": {
+    "surface": {
+      "command": "node",
+      "args": ["./mcp/surface-console.mjs"]
+    }
+  }
+}

@@ -28,6 +28,7 @@ import { WebSocketServer } from "ws";
 
 import { encode, decode, PROTOCOL_VERSION, MODES, isMode } from "../protocol/messages.mjs";
 import { Workspace } from "./workspace.mjs";
+import { snapshotToOps } from "./reconciler.mjs";
 import { Broker } from "./broker.mjs";
 import { Registry } from "./registry.mjs";
 import { defaultPrincipal } from "./identity.mjs";
@@ -121,6 +122,8 @@ export function createSurface(config = {}) {
   let sessionId = null;                  // captured ONCE from the adapter (G11)
   let turnInFlight = false;
   let currentAbort = null;               // AbortController for the in-flight turn
+  let currentCtx = null;                 // active turn's TurnContext — reached by the loopback /mcp side channel
+  let turnToken = null;                  // per-turn bearer scoping /mcp/* to the spawned runtime (M2)
   let liveFrame = null;                  // { prompt, ts, kind?, html?, spec? }
   let drawingPresent = false;            // user has a freehand annotation on screen
   const frameCount = new Map();          // sessionId → committed frame count (cache)
@@ -321,6 +324,7 @@ export function createSurface(config = {}) {
       ? `${text}\n\n[The user has drawn a freehand annotation on the current canvas. Use the screenshot tool FIRST to see exactly what they marked, then respond.]`
       : text;
 
+    turnToken = randomUUID();
     /** @type {import("../adapter-sdk/adapter").TurnContext} */
     const ctx = {
       sessionId,
@@ -331,7 +335,12 @@ export function createSurface(config = {}) {
       screenshot: makeScreenshot(),
       emit: (e) => { handleEvent(e); },
       signal: currentAbort.signal,
+      // Loopback side channel for runtimes that present OUT-OF-BAND (the Claude
+      // adapter's MCP server POSTs presentation/decisions to /mcp/* here, rather
+      // than streaming them on stdout). Scoped to this turn by `token`.
+      sideChannel: { baseUrl: instance.url, token: turnToken, get session() { return sessionId; } },
     };
+    currentCtx = ctx;
 
     let code = 0;
     let errored = null;
@@ -353,6 +362,8 @@ export function createSurface(config = {}) {
       broadcast({ type: "status", state: "idle" });
       turnInFlight = false;
       currentAbort = null;
+      currentCtx = null;
+      turnToken = null;
     }
   }
 
@@ -446,6 +457,70 @@ export function createSurface(config = {}) {
     }
   }
 
+  // ── Loopback side channel (/mcp/*) — out-of-band runtime presentation (M2) ────
+  // The Claude adapter spawns an MCP server that POSTs presentation + decisions
+  // here instead of streaming them on stdout. Every call carries the per-turn
+  // token and works only while THAT turn is live — the trust boundary that scopes
+  // the side channel to the spawned runtime (loopback bind keeps it off the network).
+  function readJsonBody(req) {
+    return new Promise((resolve) => {
+      let body = "";
+      req.on("data", (c) => { body += c; if (body.length > 8 * 1024 * 1024) req.destroy(); });
+      req.on("end", () => { try { resolve(body ? JSON.parse(body) : {}); } catch { resolve(null); } });
+      req.on("error", () => resolve(null));
+    });
+  }
+  function sendJson(res, obj, code = 200) {
+    res.writeHead(code, { "content-type": "application/json" });
+    res.end(JSON.stringify(obj));
+  }
+
+  async function handleMcp(req, res, url) {
+    if (!turnToken || !currentCtx || req.headers["x-surface-token"] !== turnToken) {
+      return sendJson(res, { error: "no active turn or bad token" }, 409);
+    }
+    const ctx = currentCtx;
+    const body = req.method === "POST" ? await readJsonBody(req) : {};
+    if (body === null) return sendJson(res, { error: "bad json" }, 400);
+    try {
+      switch (url.pathname) {
+        case "/mcp/event":            // fire-and-forget: patch/render/scene/tool/status/usage/projection
+          ctx.emit(body);
+          return sendJson(res, { ok: true });
+        case "/mcp/ask": {
+          const ans = await ctx.ask(body.question, body.options, body.context);
+          return sendJson(res, ans);
+        }
+        case "/mcp/permission": {
+          const dec = await ctx.requestPermission(body.tool, body.input);
+          return sendJson(res, dec);
+        }
+        case "/mcp/screenshot": {
+          const shot = await ctx.screenshot();
+          return sendJson(res, shot);
+        }
+        case "/mcp/timeline": {
+          const frames = sessionId ? await store.listFrames(sessionId) : [];
+          return sendJson(res, { frames: frames.map(({ n, ts, prompt }) => ({ n, ts, prompt })) });
+        }
+        case "/mcp/recall": {
+          const n = Number(body.n);
+          const frames = sessionId ? await store.listFrames(sessionId) : [];
+          const f = frames.find((fr) => fr.n === n) || frames[n - 1];
+          if (!f) return sendJson(res, { error: `no frame ${n}` }, 404);
+          if (f.snapshot) broadcast({ type: "patch", ops: snapshotToOps(f.snapshot), recalled: f.n });
+          else if (f.html != null) broadcast({ type: "render", html: f.html, recalled: f.n });
+          else if (f.spec) broadcast({ type: "scene", spec: f.spec, recalled: f.n });
+          return sendJson(res, { ok: true, n: f.n, prompt: f.prompt });
+        }
+        default:
+          return sendJson(res, { error: "unknown side-channel route" }, 404);
+      }
+    } catch (err) {
+      return sendJson(res, { error: err?.message || String(err) }, 500);
+    }
+  }
+
   // ── HTTP routing (health, history, static client) ────────────────────────────
   async function handleHttp(req, res) {
     let url;
@@ -465,6 +540,9 @@ export function createSurface(config = {}) {
       res.end(JSON.stringify({ frames }));
       return;
     }
+    // Loopback side channel for out-of-band runtimes (M2): the spawned MCP server
+    // POSTs presentation/decisions here, scoped to the active turn by its token.
+    if (url.pathname.startsWith("/mcp/")) return handleMcp(req, res, url);
 
     // Static client. "/" → index.html. Block traversal. Dev cache headers (G7).
     let path = decodeURIComponent(url.pathname);

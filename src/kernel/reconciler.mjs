@@ -105,3 +105,16 @@ export function docToOps(doc) {
     });
   return ops;
 }
+
+/**
+ * Build mount ops from a persisted workspace SNAPSHOT ({components:[], layout}) —
+ * used to re-surface a past frame (recall/time-travel) onto a live canvas.
+ * @param {{components?: any[], layout?: object}} snap
+ * @returns {import("../protocol/surface-protocol").PatchOp[]}
+ */
+export function snapshotToOps(snap) {
+  const doc = emptyDoc();
+  if (snap?.layout) doc.layout = { ...doc.layout, ...snap.layout };
+  for (const n of snap?.components || []) if (n && typeof n.id === "string" && n.id) doc.components[n.id] = { ...n };
+  return docToOps(doc);
+}
