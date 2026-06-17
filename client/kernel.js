@@ -266,7 +266,9 @@ function onProjection(msg) {
 // Re-render the LIVE canvas from `nodes` (used on return-to-now). No rise
 // animation — these components already existed. Reapplies the live layout.
 function renderLive() {
-  if (liveKind === "scene" && liveSpec) { playScene(liveSpec); return; }
+  // Only divert to the scene player when one is actually shipped; otherwise fall
+  // through to paint the retained grid so a scene op can't leave the canvas blank.
+  if (liveKind === "scene" && liveSpec && window.SurfaceScenes) { playScene(liveSpec); return; }
   if (liveKind === "html" && liveHtml != null) { showHtml(liveHtml); return; }
   showHtmlView();
   canvas.textContent = "";
@@ -306,10 +308,12 @@ function paint(html) {
 function showHtml(html) { showHtmlView(); paint(html); }
 
 function playScene(spec) {
+  const SS = window.SurfaceScenes;
+  if (!SS) return;                    // no scene renderer shipped → no-op, NEVER hide the
+                                      // canvas (else a scene op blanks the page). Guard
+                                      // BEFORE showSceneView() so the retained grid stays.
   showSceneView();                    // size the container before mounting
   const s = { ...spec, bare: true };  // blend over the page backdrop
-  const SS = window.SurfaceScenes;
-  if (!SS) return;                    // scenes are an optional island — degrade silently
   if (!scenePlayer) scenePlayer = SS.mount(playerRoot, s, { controls: false });
   else scenePlayer.update(s);
 }
@@ -351,13 +355,17 @@ async function fetchHistory() {
 // {components, layout}; escape-hatch frames carry `html` or `spec`.
 function renderSnapshot(frame) {
   if (!frame) return;
-  if (frame.spec) { playScene(frame.spec); return; }
+  // A scene frame diverts to the player ONLY if a renderer is shipped; without one,
+  // fall through to paint the snapshot grid (or the empty fallback below) so a
+  // spec-only frame never shows a blank player box.
+  if (frame.spec && window.SurfaceScenes) { playScene(frame.spec); return; }
   if (frame.html != null && !frame.snapshot) { showHtml(frame.html); return; }
   const snap = frame.snapshot || {};
   const comps = Array.isArray(snap.components) ? snap.components : [];
   showHtmlView();
   canvas.classList.remove("paint");
   canvas.textContent = "";
+  if (comps.length === 0) { canvas.classList.remove("grid"); paintEmpty(); return; }
   canvas.classList.add("grid");
   const cols = snap.layout && snap.layout.columns;
   canvas.style.setProperty("--cols", String(cols != null ? cols : (layoutSpec.columns ?? 4)));

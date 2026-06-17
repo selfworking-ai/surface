@@ -23,7 +23,9 @@ port (default `5757`).
 
 ## What to expect
 
-1. A browser opens to `http://localhost:5757` showing the locked prompt dock.
+1. A browser opens to `http://localhost:5757`. The **mission-control** pack has already
+   seeded the canvas, so you land on a composed surface (a hero, a few metrics, a list, a
+   status pill) under the locked prompt dock — not a blank page.
 2. Type a prompt and send it. The **echo adapter** (in-process, no model) paints your text
    back as **retained-mode tiles** — a hero tile plus a couple of metrics and a status pill.
 3. Send another prompt: those same tiles **update in place** rather than the canvas

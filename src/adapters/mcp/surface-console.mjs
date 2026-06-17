@@ -17,7 +17,6 @@
 // Tools exposed (each becomes `mcp__surface__<name>` to the CLI):
 //   patch(ops)              → POST /mcp/event {kind:"patch", ops}     (primary paint)
 //   render(html)            → POST /mcp/event {kind:"render", html}   (legacy)
-//   scene(spec)             → POST /mcp/event {kind:"scene", spec}    (v2 animated)
 //   ask(question, options)  → POST /mcp/ask        (BLOCKS for the user's tap)
 //   permission_prompt(...)  → POST /mcp/permission (BLOCKS; CLI --permission-prompt-tool)
 //   screenshot()            → POST /mcp/screenshot (composite image + marked tiles)
@@ -74,12 +73,6 @@ async function renderImpl({ html }) {
   if (typeof html !== "string" || !html.trim()) throw new Error("render requires non-empty `html`");
   await emit("render", { html });
   return "Painted the canvas for this turn.";
-}
-
-async function sceneImpl({ spec }) {
-  if (!spec || typeof spec !== "object") throw new Error("scene requires a `spec` object");
-  await emit("scene", { spec });
-  return "Played the scene for this turn.";
 }
 
 async function askImpl({ question, options, context }) {
@@ -214,18 +207,6 @@ const TOOLS = [
     },
   },
   {
-    name: "scene",
-    description:
-      "Paint the canvas for THIS turn as an animated visual SCENE (v2, played by the scene player). The user sees ONLY " +
-      "what you scene(). `spec` is JSON describing the scene (or a {kind:'deck', slides:[…]} for a multi-step answer). " +
-      "Put the key number/answer up front; never bury essentials under motion.",
-    inputSchema: {
-      type: "object",
-      properties: { spec: { type: "object", description: "The scene or deck spec." } },
-      required: ["spec"],
-    },
-  },
-  {
     name: "ask",
     description:
       "Surface a glass decision card on the canvas to get a user choice. Use for ANY fork, decision, or confirmation " +
@@ -340,7 +321,6 @@ async function handleLine(line) {
       let result;
       if (name === "patch") result = await patchImpl(args);
       else if (name === "render") result = await renderImpl(args);
-      else if (name === "scene") result = await sceneImpl(args);
       else if (name === "ask") result = await askImpl(args);
       else if (name === "permission_prompt") result = await permissionPromptImpl(args);
       else if (name === "screenshot") result = await screenshotImpl(args);

@@ -25,3 +25,6 @@ docs/**/*.html
 # experienced agent team — local operator knowledge, not shipped with the OSS package
 Team/
 .claude/agents/
+
+# Playwright MCP scratch snapshots (local browser-verification only)
+.playwright-mcp/

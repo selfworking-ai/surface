@@ -137,10 +137,14 @@ export function createSurface(config = {}) {
 
   // ── Per-instance turn state (single active turn / one client — see header) ────
   const workspace = new Workspace({ store });
-  // Starter pack (M5): seed the initial composition on boot. A returning session's
+  // Starter pack(s) (M5): seed the initial composition on boot. A returning session's
   // saved workspace replaces this via workspace.load(); fresh sessions start here.
-  if (config.pack) {
-    try { installPack(config.pack, { workspace, registry }); }
+  // `config.packs` (array) is the canonical form; `config.pack` (singular) is a
+  // back-compat alias. If both are set, `packs` wins. Each install is isolated in its
+  // own try/catch so one bad pack logs and the others still install.
+  const packs = Array.isArray(config.packs) ? config.packs : (config.pack ? [config.pack] : []);
+  for (const p of packs) {
+    try { installPack(p, { workspace, registry }); }
     catch (err) { console.error("[surface] pack install failed:", err?.message ?? err); }
   }
   let sessionId = null;                  // captured ONCE from the adapter (G11)

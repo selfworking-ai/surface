@@ -15,6 +15,7 @@ import { pathToFileURL } from "node:url";
 
 import { createSurface } from "../kernel/server.mjs";
 import { echoAdapter } from "../adapters/echo.mjs";
+import missionControl from "../../packs/mission-control/index.mjs";
 
 const USAGE = `surface — display server + protocol for agent CLIs
 
@@ -40,12 +41,14 @@ const CONFIG_TEMPLATE = `// surface.config.js — Surface kernel configuration.
 
 import { echoAdapter } from "@selfworking-ai/surface/adapters/echo.mjs";
 // import { claudeCodeAdapter } from "@selfworking-ai/surface/adapters/claude-code.mjs"; // M2
+// import missionControl from "@selfworking-ai/surface/packs/mission-control/index.mjs"; // a starter pack
 
 /** @type {import("@selfworking-ai/surface").SurfaceConfig} */
 export default {
   // The runtime seam. Swap echoAdapter() for a real agent-CLI adapter when ready.
   adapter: echoAdapter(),
 
+  // packs: [missionControl],    // starter pack(s) that seed the initial canvas (array)
   // port: 5757,                 // env SURFACE_PORT || PORT wins if set
   // mode: "operator",           // default working mode (operator | team | visitor)
   // store: undefined,           // default: FileStore({ dir: SURFACE_DIR || "./.surface" })
@@ -80,7 +83,11 @@ async function cmdDev() {
   if (!cfg) {
     console.log("[surface] no surface.config.js found — using the built-in echo adapter.");
     console.log("[surface] run `surface init` to scaffold a config.");
-    cfg = { adapter: echoAdapter() };
+    // Zero-config: wire the mission-control starter so a fresh boot shows a real
+    // canvas, not an empty one. Only when there's NO config — a loaded config's
+    // pack choice (even an empty one) is the user's and is left untouched.
+    console.log("[surface] no config — booting the echo adapter with the mission-control starter pack.");
+    cfg = { adapter: echoAdapter(), packs: [missionControl] };
   }
   if (!cfg.adapter) cfg.adapter = echoAdapter(); // tolerate a config that omits it
   const surface = createSurface(cfg);

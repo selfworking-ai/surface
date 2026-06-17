@@ -2,7 +2,7 @@
 // session orchestration; subagents within a turn). It is a SUBPROCESS adapter:
 // `run()` spawns `claude -p … --output-format stream-json`, parses the NDJSON
 // stream into canonical TurnEvents (via `mapClaudeEvent`), and wires the CLI to
-// the kernel's MCP side channel so presentation (patch/render/scene), `ask`,
+// the kernel's MCP side channel so presentation (patch/render), `ask`,
 // permission prompts, and screenshots flow OUT-OF-BAND — NOT over stdout.
 //
 // The split that matters:
@@ -39,7 +39,7 @@ const TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`;
 // (G3). permission_prompt MUST be in this list, or the CLI will try to ask
 // permission to call its OWN permission tool → infinite hang (body-gotcha #3).
 const ALLOWED_TOOLS = [
-  "patch", "render", "scene", "ask", "recall", "timeline", "screenshot", "permission_prompt",
+  "patch", "render", "ask", "recall", "timeline", "screenshot", "permission_prompt",
 ].map((t) => TOOL_PREFIX + t).join(",");
 
 // Map the connection's working MODE → the CLI's --permission-mode. operator is
@@ -55,7 +55,7 @@ const MODE_TO_PERMISSION_MODE = {
 // Operating contract handed to the console agent via --append-system-prompt. It
 // teaches the RETAINED-MODE patch vocabulary (Surface's core difference from
 // body's immediate-mode render). Modeled on body's CONSOLE_SYSTEM_PROMPT but for
-// `patch` + the component registry rather than scene/render.
+// `patch` + the component registry rather than render.
 const CONSOLE_PROMPT = `You operate an AMBIENT OPERATOR CONSOLE. The user sees ONE \
 visionOS glass canvas in their browser plus a floating prompt dock they type into. \
 They do NOT see your chat text — ONLY the canvas you paint. The terminal is invisible.

@@ -16,6 +16,12 @@ import { echoAdapter } from "@selfworking-ai/surface/adapters/echo.mjs";
 // Postgres/Redis-backed provider behind the same port for production persistence.
 import { fileStore } from "@selfworking-ai/surface/providers/store-file.mjs";
 
+// Starter packs (userspace apps). Each pack default-exports a `{ manifest, seed }`
+// module. Uncomment a pack here AND its matching entry in `packs:` below to install it. [M5]
+// import missionControl from "@selfworking-ai/surface/packs/mission-control/index.mjs";
+// import businessOS from "@selfworking-ai/surface/packs/business-os/index.mjs";
+// import agenticSite from "@selfworking-ai/surface/packs/agentic-site/index.mjs";
+
 export default {
   // ── Runtime (required) ──────────────────────────────────────────────────────
   // The agent runtime Surface borrows its fabric from. Exactly one adapter.
@@ -36,6 +42,7 @@ export default {
   // ── Packs (userspace apps) ────────────────────────────────────────────────────
   // Sets of components + layout + data wiring + an optional agent system-prompt
   // fragment, installed into the workspace. Agent-authorable; sandboxed, low-trust. [M5]
+  // To install a pack: uncomment its import above AND its entry here (the two must match).
   packs: [
     // missionControl,
     // businessOS,
