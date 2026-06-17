@@ -6,7 +6,7 @@
  */
 
 import type { AgentAdapter, Principal } from "../adapter-sdk/adapter";
-import type { StorageProvider } from "../provider-sdk/ports";
+import type { StorageProvider, AuditSink, AuthProvider, IdentityProvider, ProviderSet } from "../provider-sdk/ports";
 import type { Mode, ServerMsg } from "../protocol/surface-protocol";
 
 /** Configuration for {@link createSurface}. Only `adapter` is required. */
@@ -21,8 +21,21 @@ export interface SurfaceConfig {
   mode?: Mode;
   /** Modes this surface offers. Default ["operator","team","visitor"]. */
   modes?: Mode[];
+  /**
+   * Privileged provider plane (M4): storage / audit / auth / identity behind kernel
+   * ports. Each member is optional; `storage` defaults to a FileStore, `audit` to a
+   * noop sink, `auth`/`identity` to null (single-operator). Individual `store`/
+   * `audit`/`auth`/`identity` below are back-compat shortcuts for `providers.*`.
+   */
+  providers?: ProviderSet;
   /** Presentation storage. Default new FileStore({ dir: env.SURFACE_DIR || "./.surface" }). */
   store?: StorageProvider;
+  /** Audit sink — records every mutating action against the principal. Default: noop. */
+  audit?: AuditSink;
+  /** Auth provider (SSO/OIDC) establishing the human principal. Default: null. */
+  auth?: AuthProvider;
+  /** Identity provider (WebAuthn/passkey). Default: null. */
+  identity?: IdentityProvider;
   /** WS origin allowlist. Default [http://localhost:PORT, http://127.0.0.1:PORT]. */
   allowedOrigins?: string[];
   /** Static client directory. Default resolves ../../client from server.mjs. */
@@ -49,6 +62,10 @@ export interface SurfaceInstance {
   readonly broker: import("./broker").Broker;
   /** The component catalog the agent composes from. */
   readonly registry: import("./registry").Registry;
+  /** The resolved provider plane (storage/audit/auth/identity). */
+  readonly providers: { storage: StorageProvider; audit: AuditSink; auth: AuthProvider | null; identity: IdentityProvider | null };
+  /** The default/instance principal (single operator unless auth is wired). */
+  readonly principal: Principal;
   /** Encode + send a ServerMsg to every connected client. */
   broadcast(msg: ServerMsg | Record<string, unknown>): void;
   /** Start listening on host:port; resolves once bound. */

@@ -121,6 +121,71 @@ prompts through `ask` / `permission` glass cards in the page (the kernel is the
 permission-prompt surface) and surfaces adapter `stderr` to the UI via `turn-end`. A
 blocked operation blocks **visibly**, on a tap, instead of hanging silently (gotcha G3).
 
+## Multi-tenant identity (M4)
+
+M4 implements the identity/authority plane the earlier sections describe in the abstract:
+real auth + identity providers, an audit sink, and the grant matrix the kernel enforces.
+The pieces compose into one containment chain.
+
+### The three modes × the grant matrix
+
+A connection locks one mode, and the kernel decides every capability grant by the
+containment chain (`src/kernel/permissions.mjs`):
+
+```
+component.caps  ⊆  mode.grantable  ⊆  principal.ceiling
+```
+
+A capability is granted to a running component only if **both** gates clear: the
+connection's **mode** is allowed to grant it **and** the authenticated **principal's
+ceiling** covers it. The mode sets the policy posture; the principal sets the absolute hard
+cap.
+
+| Mode | `mode.grantable` | Effect |
+|------|------------------|--------|
+| `operator` | `["*"]` (wildcard) | trusted single human — may grant anything its ceiling allows |
+| `team` | `["render","ask","read","compose","network:scoped"]` | a scoped, attributable set — **no** destructive/system grants (`fs:write`, `agent.spawn`, …) |
+| `visitor` | `[]` | nothing — generation OFF, tools NONE, curated pack only |
+
+Worked examples (these are the cases pinned by `test/providers.test.mjs`):
+
+- **operator + ceiling `["*"]`** grants `fs:write`, `agent.spawn`, `render` — everything.
+- **team + ceiling `["*"]`** grants `render`/`read` but **not** `fs:write` — the mode is the
+  binding constraint even when the ceiling is wide open.
+- **visitor** grants **nothing**, whatever the ceiling — the safety property.
+- A **narrowed ceiling `["render"]`** blocks `compose` **even for operator** (whose mode
+  would otherwise grant it) — the principal's ceiling is the hard cap above the mode.
+
+### The audit anchor (every mutating action, attributed)
+
+Because Surface holds the principal at the human↔runtime edge, every **mutating action** is
+recorded against that principal through the `AuditSink` — `record({ principal, action, ts,
+data })`, fire-and-forget so a failing sink can never break a turn. The action vocabulary is
+fixed: `turn.start`, `mode.lock`, `ask.answer`, `permission.allow`, `permission.deny`,
+`frame.commit`. The shipped sinks (file / console / noop) live in
+[`src/providers/audit-file.mjs`](../src/providers/audit-file.mjs); the file sink is the
+durable, replayable attribution record. This is what makes each action **attributable to a
+human** rather than to "the agent". See [`providers.md`](providers.md) → "Audit".
+
+### The auth / identity provider boundary
+
+Authenticating the human is a **provider** behind a kernel port, never agent-authored code:
+
+- **`AuthProvider`** (`begin → complete`) establishes a `Principal` via SSO/OIDC. The real
+  `googleAuth` validates the `id_token` through Google's tokeninfo endpoint and checks the
+  audience; it deliberately does **not** hand-roll RS256/JWKS verification (production may
+  add local JWKS verification behind an optional vetted package).
+- **`IdentityProvider`** (`register → verify`) re-authenticates a returning human, typically
+  via WebAuthn / passkeys. Surface ships the **safe, zero-dep halves** (challenge minting +
+  option shaping); attestation/assertion **signature verification is an intentional
+  boundary** — it lives in an optional, **vetted** provider package (e.g.
+  `@simplewebauthn/server`), because zero-dep core will not ship hand-rolled, unverified
+  crypto. `register()`/`verify()` throw a documented error until that verifier is wired.
+
+Both boundaries follow the same principle as the kernel/userspace split: **trust-bearing
+crypto and identity live behind vetted ports, never in agent-authored userspace.** See
+[`providers.md`](providers.md) → "Auth", "Identity", and "The WebAuthn boundary".
+
 ## Reporting
 
 Security vulnerabilities go to **security@selfworking.ai** (placeholder; update before

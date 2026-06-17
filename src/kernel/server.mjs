@@ -31,7 +31,7 @@ import { Workspace } from "./workspace.mjs";
 import { snapshotToOps } from "./reconciler.mjs";
 import { Broker } from "./broker.mjs";
 import { Registry } from "./registry.mjs";
-import { defaultPrincipal } from "./identity.mjs";
+import { defaultPrincipal, capabilityToken } from "./identity.mjs";
 import { modeAllowsGeneration } from "./permissions.mjs";
 import { FileStore } from "../providers/store-file.mjs";
 import { isValidSessionId } from "../providers/store-file.mjs";
@@ -55,6 +55,10 @@ const MIME = {
 const ASK_TIMEOUT_MS = 30 * 60 * 1000;        // decision cards: 30 min
 const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;  // tool-permission cards: 5 min
 const CAPTURE_TIMEOUT_MS = 20 * 1000;         // screenshot composite: 20 s
+
+// Default AuditSink — discards. A host wires a real one (file/console/external) via
+// config.providers.audit; the kernel records every mutating action regardless (M4).
+const NOOP_AUDIT = { id: "noop", record: async () => {} };
 
 // Default model context windows — drives the usage meter's fill/%. 200k by
 // default; the 1M beta variants (id contains "[1m]" or "-1m") bump to a million.
@@ -105,7 +109,14 @@ export function createSurface(config = {}) {
   const host = config.host ?? "127.0.0.1";                 // loopback only (G8)
   const modes = config.modes ?? [...MODES];
   const defaultMode = config.mode ?? "operator";
-  const store = config.store ?? new FileStore({ dir: env.SURFACE_DIR || "./.surface" });
+  // Provider plane (M4): storage/audit/auth/identity behind kernel ports. The file
+  // store is the zero-dep default; audit defaults to noop (a host opts into a real
+  // sink); auth/identity stay null until a host wires an IdP (single-operator else).
+  const providers = config.providers ?? {};
+  const store = providers.storage ?? config.store ?? new FileStore({ dir: env.SURFACE_DIR || "./.surface" });
+  const audit = providers.audit ?? config.audit ?? NOOP_AUDIT;
+  const auth = providers.auth ?? config.auth ?? null;
+  const identity = providers.identity ?? config.identity ?? null;
   const principal = config.principal ?? defaultPrincipal();
   const clientDir = config.clientDir ?? defaultClientDir();
   const openBrowser = config.openBrowser ?? (env.OPEN_BROWSER !== "0");
@@ -124,6 +135,7 @@ export function createSurface(config = {}) {
   let currentAbort = null;               // AbortController for the in-flight turn
   let currentCtx = null;                 // active turn's TurnContext — reached by the loopback /mcp side channel
   let turnToken = null;                  // per-turn bearer scoping /mcp/* to the spawned runtime (M2)
+  let activePrincipal = principal;       // the principal attributed for the in-flight turn (M4)
   let liveFrame = null;                  // { prompt, ts, kind?, html?, spec? }
   let drawingPresent = false;            // user has a freehand annotation on screen
   const frameCount = new Map();          // sessionId → committed frame count (cache)
@@ -142,6 +154,15 @@ export function createSurface(config = {}) {
   }
   function sendTo(ws, msg) {
     if (ws.readyState === 1) ws.send(encode(msg));
+  }
+
+  // Audit anchor (M4): record a mutating action against the responsible principal.
+  // Fire-and-forget + swallow errors — auditing must NEVER break or block a turn.
+  function auditRecord(action, who, data) {
+    try {
+      const r = audit.record({ principal: who || "anonymous", action, ts: Date.now(), data });
+      if (r && typeof r.catch === "function") r.catch(() => {});
+    } catch { /* audit failures are non-fatal */ }
   }
 
   // ── Frames log (durable presentation history; cognition is the runtime's) ─────
@@ -173,6 +194,7 @@ export function createSurface(config = {}) {
       frameCount.set(sessionId, n);
       await workspace.persist();
       broadcast({ type: "frame", n });
+      auditRecord("frame.commit", activePrincipal?.id, { n, session: sessionId });
     } catch (err) {
       console.error("[surface] frame commit failed:", err?.message ?? err);
     }
@@ -311,12 +333,14 @@ export function createSurface(config = {}) {
     return false;
   }
 
-  async function runTurn(text, mode) {
+  async function runTurn(text, mode, who) {
     if (turnInFlight) { broadcast({ type: "error", message: "still processing" }); return; }
     turnInFlight = true;
+    activePrincipal = who || principal;
     currentAbort = new AbortController();
     liveFrame = { prompt: text, ts: new Date().toISOString(), kind: null, html: null, spec: null };
     broadcast({ type: "status", state: "working" });
+    auditRecord("turn.start", activePrincipal?.id, { mode: mode || defaultMode, chars: text.length });
 
     // If the user drew on screen, hint the adapter to screenshot first. The frame
     // still records the ORIGINAL prompt — the note is for the runtime only.
@@ -329,7 +353,8 @@ export function createSurface(config = {}) {
     const ctx = {
       sessionId,
       mode: mode || defaultMode,
-      principal,
+      principal: activePrincipal,
+      capabilityToken: capabilityToken(activePrincipal),
       ask: makeAsk(currentAbort.signal),
       requestPermission: makeRequestPermission(),
       screenshot: makeScreenshot(),
@@ -385,6 +410,7 @@ export function createSurface(config = {}) {
           return;
         }
         conn.mode = msg.mode;
+        auditRecord("mode.lock", conn.principal?.id, { mode: msg.mode });
         break;
       }
       case "resume": {
@@ -407,7 +433,7 @@ export function createSurface(config = {}) {
           sendTo(ws, { type: "error", message: "generation is disabled in visitor mode" });
           return;
         }
-        runTurn(msg.text, conn.mode);
+        runTurn(msg.text, conn.mode, conn.principal);
         break;
       }
       case "answer": {
@@ -419,6 +445,7 @@ export function createSurface(config = {}) {
           ? { cancelled: true, reason: "user dismissed" }
           : { label: msg.label, value: msg.value });
         broadcast({ type: "resolved", id: msg.id, kind: "ask", outcome: msg.cancelled ? "cancelled" : "answered" });
+        auditRecord("ask.answer", conn.principal?.id, { id: msg.id, cancelled: !!msg.cancelled });
         break;
       }
       case "decision": {
@@ -431,6 +458,7 @@ export function createSurface(config = {}) {
           ? { behavior: "allow", updatedInput: e.input }
           : { behavior: "deny", message: (typeof msg.message === "string" && msg.message) || "user denied" });
         broadcast({ type: "resolved", id: msg.id, kind: "permission", outcome: allow ? "allow" : "deny" });
+        auditRecord("permission." + (allow ? "allow" : "deny"), conn.principal?.id, { id: msg.id, tool: e.tool });
         break;
       }
       case "abort":
@@ -588,7 +616,7 @@ export function createSurface(config = {}) {
 
   wss.on("connection", (ws) => {
     clients.add(ws);
-    const conn = { mode: null };   // per-connection state (mode is locked once)
+    const conn = { mode: null, principal };   // per-connection state (mode locked once; principal from auth, else the default operator)
 
     // Handshake first: announce modes + the negotiated protocol version, then the
     // adapter's capabilities (LSP-style), then replay the live composition so a
@@ -620,6 +648,8 @@ export function createSurface(config = {}) {
     get url() { return `http://localhost:${this.port}`; },
     broker,
     registry,
+    providers: { storage: store, audit, auth, identity },
+    principal,
     broadcast,
     listen() {
       return new Promise((resolve, reject) => {
