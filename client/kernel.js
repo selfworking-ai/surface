@@ -13,6 +13,11 @@
 // TDZ discipline (G5): EVERY module-scope const the boot path touches is declared
 // up here, above boot() at the very bottom. This bit `body` twice — stay strict.
 
+// Design-system Web Components (M3) — importing this DEFINES the custom elements
+// (<surface-metric> …) and gives the reconciler the name→tag resolver. Tokens
+// pierce the shadow boundary, so :root styling still reaches inside each element.
+import { tagFor, isRegistered } from "./components/index.js";
+
 const PROTOCOL_V = 1;
 
 const $ = (id) => document.getElementById(id);
@@ -130,86 +135,34 @@ function handle(msg) {
   }
 }
 
-// ── Component registry (M1 built-ins) ──────────────────────────────────────
-// Each renderer returns a fresh `.tile` HTMLElement composed ONLY from the
-// design-system classes already in style.css. All text is escaped. An unknown
-// component falls back to a JSON dump so nothing is ever invisible.
-function sizeClass(props) {
-  const s = props && props.size;
-  return s === "lg" || s === "tall" ? " " + s : "";
-}
-function asItems(items) {
-  if (!Array.isArray(items)) return [];
-  return items.map((it) => (it && typeof it === "object" ? String(it.text ?? "") : String(it)));
-}
-function asPairs(pairs) {
-  if (Array.isArray(pairs)) return pairs.map((p) => [String(p?.k ?? ""), String(p?.v ?? "")]);
-  if (pairs && typeof pairs === "object") return Object.entries(pairs).map(([k, v]) => [String(k), String(v)]);
-  return [];
-}
-function toneClass(t) { return t === "good" || t === "warn" || t === "bad" ? " " + t : ""; }
-
-const RENDERERS = {
-  metric(p) {
-    const delta = p.delta != null
-      ? `<div class="delta${toneClass(p.tone)}">${escapeHtml(p.delta)}</div>` : "";
-    return `<div class="label">${escapeHtml(p.label ?? "")}</div>
-      <div class="value">${escapeHtml(p.value ?? "")}</div>${delta}`;
-  },
-  hero(p) {
-    const body = p.body != null ? `<p>${escapeHtml(p.body)}</p>` : "";
-    return `<div class="label">${escapeHtml(p.label ?? "")}</div>
-      <div class="value">${escapeHtml(p.value ?? "")}</div>${body}`;
-  },
-  list(p) {
-    const lis = asItems(p.items).map((t) => `<li>${escapeHtml(t)}</li>`).join("");
-    return `<div class="label">${escapeHtml(p.label ?? "")}</div>
-      <ul class="list">${lis}</ul>`;
-  },
-  status(p) {
-    const txt = p.status ?? p.tone ?? p.value ?? "";
-    return `<div class="label">${escapeHtml(p.label ?? "")}</div>
-      <div class="value">${escapeHtml(p.value ?? "")}</div>
-      <span class="pill${toneClass(p.tone)}">${escapeHtml(txt)}</span>`;
-  },
-  text(p) {
-    const label = p.label != null ? `<div class="label">${escapeHtml(p.label)}</div>` : "";
-    const body = p.text ?? p.body ?? "";
-    return `${label}<p>${escapeHtml(body)}</p>`;
-  },
-  kv(p) {
-    const rows = asPairs(p.pairs).map(([k, v]) =>
-      `<div class="kv"><span>${escapeHtml(k)}</span><span>${escapeHtml(v)}</span></div>`).join("");
-    return `<div class="label">${escapeHtml(p.label ?? "")}</div>${rows}`;
-  },
-};
-
-// Build a fresh element for a component. `tile` classes (.lg/.tall/.hero) come
-// from the renderer's needs + props.size. Returns a detached HTMLElement.
+// ── Component rendering — registered Web Components (M3) ─────────────────────
+// Each primitive is a shadow-DOM custom element (<surface-metric> …), defined by
+// importing ./components. The reconciler creates the element and assigns `.props`;
+// the element renders ITSELF (isolated styles; :root tokens still cascade in). An
+// unknown component name → <surface-fallback> (name + props dump) so a mount is
+// never silently invisible. Sizing/items/tone now live inside the components.
 function renderComponent(name, props) {
   props = props && typeof props === "object" ? props : {};
-  const el = document.createElement("div");
-  let cls = "tile";
-  if (name === "hero") cls += " hero";
-  else cls += sizeClass(props);
-  el.className = cls;
+  const el = document.createElement(tagFor(name));
   el.dataset.component = name;
-  const fn = RENDERERS[name];
-  if (fn) {
-    el.innerHTML = fn(props);
-  } else {
-    // Unknown component → never invisible: name + a JSON dump.
-    let dump; try { dump = JSON.stringify(props); } catch { dump = String(props); }
-    el.innerHTML = `<div class="label">${escapeHtml(name)}</div><p class="mono">${escapeHtml(dump)}</p>`;
-  }
+  el.props = isRegistered(name) ? props : { __name: name, __props: props };
   return el;
 }
 
-// Re-render an existing element's CONTENT in place (used by `update` — no rise).
-function rerenderInto(el, name, props) {
-  const fresh = renderComponent(name, props);
-  el.className = fresh.className;
-  el.innerHTML = fresh.innerHTML;
+// Display fields for the screenshot composite. Custom-element hosts expose `.props`;
+// legacy render(html) `.tile` nodes are read from their light DOM.
+function tileInfo(el) {
+  const p = el.props;
+  if (p && typeof p === "object") {
+    const src = p.__props || p;
+    const body = src.body ?? src.text ?? (Array.isArray(src.items) ? src.items.join(", ") : "");
+    return { label: src.label, value: src.value, body };
+  }
+  return {
+    label: el.querySelector(".label")?.textContent?.trim(),
+    value: el.querySelector(".value")?.textContent?.trim(),
+    body: el.querySelector("p, .list, ul")?.textContent?.trim(),
+  };
 }
 
 // ── The reconciler ─────────────────────────────────────────────────────────
@@ -260,7 +213,8 @@ function opUpdate({ id, props }) {
   const node = nodes.get(id);
   if (!node) return;                        // unknown id → ignore
   node.props = { ...node.props, ...(props && typeof props === "object" ? props : {}) };
-  rerenderInto(node.el, node.component, node.props);  // re-render content, no rise
+  // Setting .props re-renders the custom element in place (no mount rise replay).
+  node.el.props = isRegistered(node.component) ? node.props : { __name: node.component, __props: node.props };
 }
 
 function opRemove({ id }) {
@@ -292,9 +246,9 @@ function renderLive() {
   if (nodes.size === 0) { canvas.classList.remove("grid"); paintEmpty(); return; }
   canvas.classList.add("grid");
   if (layoutSpec.columns != null) canvas.style.setProperty("--cols", String(layoutSpec.columns));
-  for (const node of nodes.values()) {
+  for (const [id, node] of nodes) {
     const el = renderComponent(node.component, node.props);
-    el.dataset.id = node.el?.dataset?.id || "";
+    el.dataset.id = id;
     node.el = el;
     canvas.appendChild(el);
   }
@@ -750,13 +704,13 @@ function captureComposite() {
   oc.width = vw * scale; oc.height = vh * scale;
   const c = oc.getContext("2d"); c.scale(scale, scale);
   c.fillStyle = "#0e0f14"; c.fillRect(0, 0, vw, vh);
-  canvas.querySelectorAll(".tile").forEach((t) => {
+  canvas.querySelectorAll("[data-id], .tile").forEach((t) => {
     const r = t.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return;
     roundRect(c, r.left, r.top, r.width, r.height, 16);
     c.fillStyle = "rgba(255,255,255,0.06)"; c.fill();
     c.lineWidth = 1; c.strokeStyle = "rgba(255,255,255,0.18)"; c.stroke();
-    drawTileText(c, t, r);
+    drawTileText(c, tileInfo(t), r);
   });
   c.strokeStyle = DRAW_COLOR; c.lineWidth = DRAW_W; c.lineCap = "round"; c.lineJoin = "round";
   for (const st of strokes) strokePath(c, st);
@@ -768,12 +722,10 @@ function roundRect(c, x, y, w, h, r) {
   c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
   c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
 }
-function drawTileText(c, tile, r) {
+function drawTileText(c, info, r) {
   const pad = 18, x = r.left + pad, maxW = r.width - pad * 2; let y = r.top + pad;
   c.textBaseline = "top";
-  const label = tile.querySelector(".label")?.textContent?.trim();
-  const value = tile.querySelector(".value")?.textContent?.trim();
-  const body = tile.querySelector("p, .list")?.textContent?.trim();
+  const label = info.label, value = info.value, body = info.body;
   if (label) { c.fillStyle = "rgba(246,246,248,0.5)"; c.font = "700 10px -apple-system, system-ui, sans-serif"; c.fillText(label.toUpperCase().slice(0, 30), x, y); y += 18; }
   if (value) { c.fillStyle = "#f6f6f8"; c.font = "700 22px -apple-system, system-ui, sans-serif"; y = wrapText(c, value, x, y, maxW, 26, 2); }
   if (body) { c.fillStyle = "rgba(246,246,248,0.62)"; c.font = "13px -apple-system, system-ui, sans-serif"; wrapText(c, body, x, y + 2, maxW, 17, 4); }
@@ -792,13 +744,12 @@ function wrapText(c, text, x, y, maxW, lh, maxLines) {
 }
 function annotatedTiles() {
   const out = [];
-  canvas.querySelectorAll(".tile").forEach((t) => {
+  canvas.querySelectorAll("[data-id], .tile").forEach((t) => {
     const r = t.getBoundingClientRect();
     const hit = strokes.some((st) => st.pts.some((p) => p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom));
     if (hit) {
-      const lbl = t.querySelector(".label")?.textContent?.trim();
-      const val = t.querySelector(".value")?.textContent?.trim();
-      out.push([lbl, val].filter(Boolean).join(": ") || "a tile");
+      const info = tileInfo(t);
+      out.push([info.label, info.value].filter(Boolean).join(": ") || "a tile");
     }
   });
   return out;
