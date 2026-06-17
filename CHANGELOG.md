@@ -11,10 +11,55 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Planned (each milestone independently shippable): M2 — Adapter SDK + Claude Code adapter
-+ capability negotiation; M3 — design system + components + data broker; M4 — provider
-plane + multi-tenant identity; M5 — packs; M6 — org projection + a second runtime; M7 —
-component-smith + gardener (signal-gated self-improvement)._
+_Planned: M6 — org projection (generic `org.graph` / `agent.*` / `schedule.*` renderers +
+an org-chart pack) + a second runtime adapter proving agnosticism; M7 — component-smith +
+gardener (signal-gated self-improvement)._
+
+## [0.2.0] — 2026-06-17
+
+Ships **M2–M5**: a real runtime adapter, a generative design system, a privileged provider
+plane with multi-tenant identity, and the pack (app) system. Protocol version `1` (unchanged).
+
+### Added
+
+**M2 — Claude Code adapter + capability negotiation**
+
+- `src/adapters/claude-code.mjs` (Tier B): spawns `claude -p --output-format stream-json
+  --include-partial-messages --verbose --resume <id>`, maps the stream to canonical
+  TurnEvents (pure, unit-tested `mapClaudeEvent`), and routes presentation + decisions
+  through a token-scoped loopback MCP side channel (`src/adapters/mcp/surface-console.mjs`).
+- Kernel `/mcp/*` side channel (event / ask / permission / screenshot / timeline / recall),
+  scoped to the active turn by a per-turn bearer token.
+- Adapter SDK: `resolveBin` (G1), line-buffered `readNdjson` (G4).
+
+**M3 — Design system + components + data broker**
+
+- Built-in primitives as shadow-DOM **Web Components** (`metric` / `hero` / `list` /
+  `status` / `text` / `kv` + fallback); `:root` tokens cascade through the shadow boundary.
+- **Token-only validator** enforced at registration — rejects hardcoded colors/radii (the
+  rule that makes runtime component generation survivable).
+- Data **broker** (topic pub/sub fan-out).
+
+**M4 — Provider plane + multi-tenant identity**
+
+- Provider plane behind kernel ports: `createSurface({ providers: { storage, audit, auth, identity } })`.
+- **Audit anchor** — every mutating action recorded against the responsible principal.
+- Identity threaded through the permission containment chain (`component.caps ⊆
+  mode.grantable ⊆ principal.ceiling`); `ctx.principal` + capability token.
+- Providers: file/console/noop audit sinks, mock auth/identity, real Google OIDC
+  (config-gated). WebAuthn challenge-minting ships; signature verification is a documented
+  vetted-island boundary (the zero-dep core won't hand-roll security crypto).
+
+**M5 — Packs (the app system)**
+
+- `installPack` / `exportPack` / `importPack`; `createSurface({ pack })` seeds the canvas on boot.
+- Three starters: **mission-control** (operator), **business-os** (team), **agentic-site**
+  (visitor). Visitor lockdown verified end-to-end.
+
+### Notes
+
+- 91 tests on `node:test`; M2 + M3 verified live in a browser (M2 with a real Claude agent).
+- `render(html)` v1 immediate-mode escape hatch retained throughout.
 
 ## [0.1.0] — 2026-06-17
 
@@ -66,5 +111,6 @@ embeddable, tested core. Protocol version `1`.
 - Three connection modes (`operator` / `team` / `visitor`); `visitor` is generation-OFF,
   tools-NONE, curated-pack-only.
 
-[Unreleased]: https://github.com/selfworking-ai/surface/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/selfworking-ai/surface/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.2.0
 [0.1.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.1.0

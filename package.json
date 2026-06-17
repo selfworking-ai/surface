@@ -1,6 +1,6 @@
 {
   "name": "@selfworking-ai/surface",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Display server + protocol for agent CLIs — a locked prompt dock and a generative, composable, retained-mode canvas. LSP for agent consoles: Surface owns the surface, the runtime owns the fabric.",
   "type": "module",
   "license": "MIT",
