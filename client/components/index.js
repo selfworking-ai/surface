@@ -9,10 +9,12 @@ import { manifest as list } from "./list.js";
 import { manifest as status } from "./status.js";
 import { manifest as text } from "./text.js";
 import { manifest as kv } from "./kv.js";
+import { manifest as orgGraph } from "./org-graph.js";
+import { manifest as inbox } from "./inbox.js";
 import { manifest as fallback } from "./fallback.js";
 
 /** All built-in component manifests (each carries its validated `styles`). */
-export const MANIFESTS = [metric, hero, list, status, text, kv, fallback];
+export const MANIFESTS = [metric, hero, list, status, text, kv, orgGraph, inbox, fallback];
 
 const TAGS = new Set(MANIFESTS.map((m) => "surface-" + m.name));
 

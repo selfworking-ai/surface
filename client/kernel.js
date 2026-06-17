@@ -65,6 +65,12 @@ let currentMode = null;
 const nodes = new Map();
 let layoutSpec = { columns: 4 };
 
+// Generic projection renderers (M6): a borrowed-namespace projection (org.graph,
+// agent.inbox, …) maps to a registered component that renders the data. This is how
+// a Tier-A runtime lights up org mode with NO bespoke UI — the kernel relays the
+// projection unchanged; the client picks the renderer by namespace.
+const NS_RENDERER = { "org.graph": "org-graph", "agent.inbox": "inbox" };
+
 // ── Time-travel state ──────────────────────────────────────────────────────
 // `frames` = committed turns (from /api/history); each frame carries a retained
 // `snapshot` (components + layout) and/or an `html`/`spec` escape-hatch payload.
@@ -128,7 +134,7 @@ function handle(msg) {
     case "usage": setMeter(msg); break;
     case "session": setSession(msg.id); setSessionChip(msg.id); break;
     case "frame": fetchHistory(); break;
-    case "projection": /* M1: generic namespace projections not surfaced yet */ break;
+    case "projection": onProjection(msg); break;
     case "turn-end": setStatus("idle"); if (msg.stderr) toast(`Turn error: ${firstLine(msg.stderr)}`); break;
     case "error": toast(msg.message || "error"); break;
     case "capture-request": handleCaptureRequest(msg); break;
@@ -234,6 +240,15 @@ function opLayout({ spec }) {
 function onPatch(msg) {
   if (msg.recalled != null) { recallFrame(msg.recalled); return; }
   applyPatch(msg.ops);
+}
+
+// A borrowed-namespace projection → mount/upsert its generic renderer on the
+// canvas, keyed by namespace, fed the projection data. Unknown namespaces are
+// vendor passthroughs a pack renders; the core ignores them.
+function onProjection(msg) {
+  const component = NS_RENDERER[msg.namespace];
+  if (!component) return;
+  applyPatch([{ op: "mount", id: "proj:" + msg.namespace, component, props: msg.data || {} }]);
 }
 
 // Re-render the LIVE canvas from `nodes` (used on return-to-now). No rise
@@ -759,6 +774,18 @@ function annotatedTiles() {
 promptEl.addEventListener("input", autoGrow);
 promptEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitPrompt(); } });
 sendBtn.addEventListener("click", submitPrompt);
+
+// Components (e.g. org-chart nodes) can request a turn by dispatching a composed
+// CustomEvent("surface:prompt", { detail: { text } }) — the "talk to this" gesture.
+// Composed events cross the shadow boundary + bubble to document.
+document.addEventListener("surface:prompt", (e) => {
+  const text = e.detail && typeof e.detail.text === "string" ? e.detail.text.trim() : "";
+  if (!text || !modeLocked || currentMode === "visitor") return;
+  if (!atNow()) returnToNow();
+  resetToolFeed();
+  send({ type: "prompt", text });
+  setStatus("working");
+});
 gate.querySelectorAll("button[data-mode]").forEach((b) => { b.onclick = () => lockMode(b.dataset.mode); });
 
 // Seek-bar scrubbing — drag the thumb / click the track to travel in time;
