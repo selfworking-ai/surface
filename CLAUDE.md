@@ -34,6 +34,12 @@ agent *patches* a persistent canvas).
 2. **Console agent** (a headless agent-CLI subprocess, via an adapter) — operates
    a Surface. Read *Operating contract*.
 
+> **Continuity (operators):** a local, gitignored `Team/` may hold the experienced
+> agent team that built this — its roster, the role→zone map, per-role skills +
+> gotchas, the orchestration playbook, and the release flow. **If `Team/` is present,
+> read `Team/ONBOARDING.md` first** to start ahead; the roles are spawnable as
+> `surface-*` subagents (`.claude/agents/`, also gitignored).
+
 ---
 
 ## Operating contract (console agent — every turn)

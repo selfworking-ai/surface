@@ -21,3 +21,7 @@ scenes/package-lock.json
 
 # docs html mirror (generated island output kept out of source)
 docs/**/*.html
+
+# experienced agent team — local operator knowledge, not shipped with the OSS package
+Team/
+.claude/agents/
