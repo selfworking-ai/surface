@@ -11,9 +11,42 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-_Planned: M6 — org projection (generic `org.graph` / `agent.*` / `schedule.*` renderers +
-an org-chart pack) + a second runtime adapter proving agnosticism; M7 — component-smith +
-gardener (signal-gated self-improvement)._
+_Future (none block the core; all documented): the M4 auth remainder (HTTP auth flow +
+connection↔principal correlation, operator-gated install UI, a vetted WebAuthn verifier);
+`api-reference.md` + `migration-from-body.md`; an accessibility pass on the dock/primitives +
+a committed Playwright e2e island._
+
+## [0.3.0] — 2026-06-17
+
+Ships **M6 (org projection + a second runtime)** and **M7 (signal-gated self-improvement)** —
+completing the M0–M7 plan. Protocol version `1` (unchanged).
+
+### Added
+
+**M6 — Org projection + a second runtime (runtime-agnosticism)**
+
+- `src/adapters/orgmock.mjs` — a Tier-A in-process runtime advertising the standard org
+  namespaces; emits `org.graph` + `agent.inbox` projections and handles "talk to <node>".
+- Generic renderers `client/components/{org-graph,inbox}.js`: a projection's namespace maps to
+  a component (`NS_RENDERER`), so a Tier-A runtime lights up org mode with NO bespoke UI and NO
+  kernel change — the agnosticism thesis, proven live in a browser.
+- A `surface:prompt` bridge — a component dispatches a composed event → a turn (talk-to-any-node).
+- `packs/org-console/` (operator profile). Docs: `org-mode.md`, `multi-runtime.md`.
+
+**M7 — Component-smith + gardener (self-improvement)**
+
+- Signal layer: a `SignalSink` port + file/console/noop impls; the kernel records REAL signals
+  (render-error, unknown-component, dwell/dismiss, markup). "The signal is the hard part."
+- Gardener (`src/kernel/gardener.mjs`): aggregates signals into GATED, ranked revision proposals
+  — never auto-applies, never mutates a live mount.
+- Component-smith (`src/kernel/smith.mjs`): compose-first search + validate-before-register
+  (token-only + manifest) + new-versions-only. Generation stays the agent's gated job.
+- Docs: `self-improvement.md` (the honest model + the signal-first caveat).
+
+### Notes
+
+- 107 tests on `node:test`; M6 verified live in a browser. The full M0–M7 plan shipped via
+  seven file-zoned parallel agent waves with zero interface drift.
 
 ## [0.2.0] — 2026-06-17
 
@@ -111,6 +144,7 @@ embeddable, tested core. Protocol version `1`.
 - Three connection modes (`operator` / `team` / `visitor`); `visitor` is generation-OFF,
   tools-NONE, curated-pack-only.
 
-[Unreleased]: https://github.com/selfworking-ai/surface/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/selfworking-ai/surface/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.3.0
 [0.2.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.2.0
 [0.1.0]: https://github.com/selfworking-ai/surface/releases/tag/v0.1.0
