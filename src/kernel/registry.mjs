@@ -4,10 +4,12 @@
 // arrange already-registered components (cheap, deterministic, safe); AUTHORING a
 // new component is the rare, gated path that registers a new entry here.
 //
-// M1 status: validates manifest SHAPE only. The load-bearing security rule —
-// `tokensOnly: true`, registration REJECTS hardcoded colors/radii so runtime-
-// generated components can't smuggle non-token styling — is an M3 hook; see the
-// clearly-marked TODO in validateComponentManifest.
+// M3: the load-bearing security rule is now ENFORCED — `tokensOnly: true`, and if
+// a manifest ships `styles`, registration REJECTS hardcoded colors/radii (via the
+// design-system token validator) so runtime-generated components can't smuggle
+// non-token styling onto the glass canvas.
+
+import { tokenViolationReason } from "../../client/components/token-validator.mjs";
 
 /**
  * Structural validation of a ComponentManifest (see pack-sdk/pack.d.ts). M1 checks
@@ -25,9 +27,15 @@ export function validateComponentManifest(m) {
   // manifests are forward-compatible with the M3 enforcement pass.
   if (m.tokensOnly !== true) return { ok: false, error: "manifest-must-set-tokensOnly-true" };
 
-  // TODO(M3): token-only ENFORCEMENT. When a component ships a stylesheet/template,
-  // parse it and reject any hardcoded color/length not drawn from the :root glass
-  // tokens (the rule that makes runtime generation survivable). Shape-only for now.
+  // Token-only ENFORCEMENT (M3): when a component ships a stylesheet, reject any
+  // hardcoded color/radius not drawn from the :root glass tokens — the rule that
+  // makes runtime generation survivable. Shape-checked components with no styles
+  // pass (the Web Component supplies its own validated styles at definition).
+  if (m.styles != null) {
+    if (typeof m.styles !== "string") return { ok: false, error: "manifest-styles-must-be-string" };
+    const reason = tokenViolationReason(m.styles);
+    if (reason) return { ok: false, error: reason };
+  }
   return { ok: true };
 }
 
