@@ -24,14 +24,16 @@ concrete implementations in [`src/providers/`](../src/providers/).
 |------|-----------|-------|-------------------------|
 | `storage` | `StorageProvider` | `get` · `put` · `appendFrame` · `listFrames` (+ optional `saveWorkspace`/`loadWorkspace`) | **FileStore** (jsonl-on-disk, default) |
 | `audit` | `AuditSink` | `record(e)` | **file** · **console** · **noop** |
+| `signals` | `SignalSink` | `record(s)` | **file** · **console** · **noop** (self-improvement signals — see [`self-improvement.md`](self-improvement.md)) |
 | `auth` | `AuthProvider` | `begin(req)` → challenge · `complete(req)` → `Principal` | **mock** · **googleAuth** (real OIDC) |
 | `identity` | `IdentityProvider` | `register(p)` · `verify(req)` → `Principal` | **mock** · **webauthnIdentity** (passkey, partial — see boundary) |
 | `transport` | `TransportProvider` | implementation-defined | — (the `ws` hub is built in) |
 | `connectors` | `ConnectorProvider[]` | `tools()` · `topics()` | — (M4+) |
 
-Only `storage` is hard-required by the kernel (it persists presentation). `audit` defaults
-to a no-op; `auth`/`identity` stay `null` until a host wires an IdP (the kernel runs as a
-single trusted local operator otherwise).
+Only `storage` is hard-required by the kernel (it persists presentation). `audit` and
+`signals` default to a no-op (the kernel still records every action / emits every signal —
+a host opts into a durable sink); `auth`/`identity` stay `null` until a host wires an IdP
+(the kernel runs as a single trusted local operator otherwise).
 
 ## Wiring providers
 

@@ -87,6 +87,23 @@ export interface AuditSink {
   }): Promise<void>;
 }
 
+/**
+ * SignalSink — every REAL, observed self-improvement signal lands here (render-
+ * error, unknown-component, markup, dwell/dismiss). The gardener aggregates these
+ * into GATED revision proposals; the smith validates a proposed component before a
+ * NEW version is registered. "The signal is the hard part" — only genuine
+ * observations, never vibes. Fire-and-forget; `record()` must never throw. [M7]
+ */
+export interface SignalSink {
+  id?: string;
+  record(s: {
+    kind: string;
+    component?: string | null;
+    ts: number;
+    data?: unknown;
+  }): Promise<void>;
+}
+
 /** TransportProvider — swap the ws hub for sse/etc. behind this port. [later] */
 export interface TransportProvider {
   id: string;
@@ -112,6 +129,7 @@ export interface ProviderSet {
   auth?: AuthProvider;
   identity?: IdentityProvider;
   audit?: AuditSink;
+  signals?: SignalSink;
   transport?: TransportProvider;
   connectors?: ConnectorProvider[];
 }

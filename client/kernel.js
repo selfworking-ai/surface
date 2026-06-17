@@ -107,6 +107,11 @@ function connect() {
   });
 }
 function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ v: PROTOCOL_V, ...obj })); }
+// Emit a self-improvement signal (M7) to the kernel's SignalSink — REAL observations
+// only: a fallback mount, a quick dismiss vs a long dwell, freehand markup.
+function emitSignal(kind, component, data) {
+  send({ type: "event", name: "signal", data: { kind, component: component || null, ...(data || {}) } });
+}
 
 function handle(msg) {
   switch (msg.type) {
@@ -212,7 +217,10 @@ function opMount({ id, component, props, slot, at }) {
     el.classList.add("mounted");            // first mount → rise in
     canvas.appendChild(el);
   }
-  nodes.set(id, { component, props: props && typeof props === "object" ? { ...props } : {}, slot, at, el });
+  nodes.set(id, { component, props: props && typeof props === "object" ? { ...props } : {}, slot, at, el, mountedAt: Date.now() });
+  // Signal: the agent mounted a component the registry doesn't know (rendered as a
+  // fallback) — a candidate for the component-smith to author.
+  if (!isRegistered(component)) emitSignal("unknown-component", component);
 }
 
 function opUpdate({ id, props }) {
@@ -227,6 +235,10 @@ function opRemove({ id }) {
   const node = nodes.get(id);
   if (!node) return;
   if (node.el && node.el.parentNode) node.el.remove();
+  // Signal: a quick removal is a dismiss (low utility); a long-lived one is healthy
+  // dwell. The gardener weighs these.
+  const ms = node.mountedAt ? Date.now() - node.mountedAt : 0;
+  emitSignal(ms < 4000 ? "dismiss" : "dwell", node.component, { ms });
   nodes.delete(id);
 }
 
@@ -707,6 +719,15 @@ function handleCaptureRequest(msg) {
   let dataUrl = null, annotated = [];
   const had = strokes.length > 0;
   try { dataUrl = captureComposite(); annotated = annotatedTiles(); } catch { /* tainted/failed */ }
+  // Freehand markup over a component is a confusion/interest signal (M7) — emit one
+  // per overlapped component for the gardener.
+  if (had) {
+    canvas.querySelectorAll("[data-id]").forEach((host) => {
+      const r = host.getBoundingClientRect();
+      const hit = strokes.some((st) => st.pts.some((p) => p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom));
+      if (hit && host.dataset.component) emitSignal("markup", host.dataset.component, { id: host.dataset.id });
+    });
+  }
   send({ type: "event", name: "capture", data: { id: msg.id, dataUrl, annotated, hasDrawing: had } });
   // The agent has the drawing now — clear it from the screen (also resets the
   // server's drawing-present flag via clearDrawing → drawing-state). Confirms receipt.

@@ -61,6 +61,11 @@ const CAPTURE_TIMEOUT_MS = 20 * 1000;         // screenshot composite: 20 s
 // config.providers.audit; the kernel records every mutating action regardless (M4).
 const NOOP_AUDIT = { id: "noop", record: async () => {} };
 
+// Default SignalSink — discards. Self-improvement signals (render errors, dwell /
+// dismiss, markup, unknown-component) flow here; a host opts into a real sink to
+// feed the gardener (M7). The kernel emits signals regardless.
+const NOOP_SIGNALS = { id: "noop", record: async () => {} };
+
 // Default model context windows — drives the usage meter's fill/%. 200k by
 // default; the 1M beta variants (id contains "[1m]" or "-1m") bump to a million.
 function contextWindowFor(model) {
@@ -116,6 +121,7 @@ export function createSurface(config = {}) {
   const providers = config.providers ?? {};
   const store = providers.storage ?? config.store ?? new FileStore({ dir: env.SURFACE_DIR || "./.surface" });
   const audit = providers.audit ?? config.audit ?? NOOP_AUDIT;
+  const signals = providers.signals ?? config.signals ?? NOOP_SIGNALS;
   const auth = providers.auth ?? config.auth ?? null;
   const identity = providers.identity ?? config.identity ?? null;
   const principal = config.principal ?? defaultPrincipal();
@@ -170,6 +176,16 @@ export function createSurface(config = {}) {
       const r = audit.record({ principal: who || "anonymous", action, ts: Date.now(), data });
       if (r && typeof r.catch === "function") r.catch(() => {});
     } catch { /* audit failures are non-fatal */ }
+  }
+
+  // Self-improvement signal (M7): record a REAL observed signal (render-error, dwell,
+  // dismiss, markup, unknown-component) for the gardener. Fire-and-forget; never
+  // breaks a turn. "The signal is the hard part" — only genuine observations land here.
+  function signalRecord(kind, component, data) {
+    try {
+      const r = signals.record({ kind, component: component || null, ts: Date.now(), data });
+      if (r && typeof r.catch === "function") r.catch(() => {});
+    } catch { /* signal failures are non-fatal */ }
   }
 
   // ── Frames log (durable presentation history; cognition is the runtime's) ─────
@@ -297,8 +313,11 @@ export function createSurface(config = {}) {
         break;
       }
       case "patch": {
-        const { applied } = workspace.applyOps(evt.ops);
+        const { applied, rejected } = workspace.applyOps(evt.ops);
         if (applied.length) broadcast({ type: "patch", ops: applied });
+        // Rejected ops are a render-error signal — the agent emitted something the
+        // reconciler couldn't apply (bad shape, update/remove of an absent id).
+        for (const r of rejected) signalRecord("render-error", r.op?.id, { error: r.error, op: r.op?.op });
         liveFrame && (liveFrame.kind = "patch");
         break;
       }
@@ -477,6 +496,10 @@ export function createSurface(config = {}) {
       case "event": {
         if (msg.name === "drawing-state") {
           drawingPresent = !!(msg.data && msg.data.present);
+        } else if (msg.name === "signal") {
+          // Client-observed self-improvement signal (dwell/dismiss/markup/unknown-component).
+          const d = msg.data || {};
+          if (typeof d.kind === "string") signalRecord(d.kind, d.component, d);
         } else if (msg.name === "capture") {
           const d = msg.data || {};
           const e = pendingCaptures.get(d.id);
@@ -655,7 +678,7 @@ export function createSurface(config = {}) {
     get url() { return `http://localhost:${this.port}`; },
     broker,
     registry,
-    providers: { storage: store, audit, auth, identity },
+    providers: { storage: store, audit, signals, auth, identity },
     principal,
     broadcast,
     listen() {

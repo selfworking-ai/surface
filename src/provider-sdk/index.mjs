@@ -14,6 +14,7 @@ export const PORT_NAMES = /** @type {const} */ ([
   "auth",
   "identity",
   "audit",
+  "signals",
   "transport",
   "connectors",
 ]);
@@ -51,6 +52,22 @@ export function validateStorageProvider(p) {
 export function validateAuditSink(p) {
   if (!p || typeof p !== "object") return { ok: false, error: "provider-not-object" };
   if (typeof p.record !== "function") return { ok: false, error: "audit-missing-record" };
+  return { ok: true };
+}
+
+/**
+ * Structural check that an object satisfies the SignalSink port (`record(s)`).
+ * The kernel calls `record()` on every observed self-improvement signal (render-
+ * error, unknown-component, markup, dwell/dismiss) fire-and-forget; a sink only
+ * needs that one method. `id` is optional metadata. (Same shape as AuditSink — a
+ * distinct port because the two record DIFFERENT things: who-did-what vs what-the-
+ * user-experienced — and a host wires them independently.)
+ * @param {any} p
+ * @returns {{ok:true} | {ok:false, error:string}}
+ */
+export function validateSignalSink(p) {
+  if (!p || typeof p !== "object") return { ok: false, error: "provider-not-object" };
+  if (typeof p.record !== "function") return { ok: false, error: "signals-missing-record" };
   return { ok: true };
 }
 
@@ -99,6 +116,7 @@ export function validateProviderSet(set) {
   };
   check("storage", set.storage, validateStorageProvider);
   check("audit", set.audit, validateAuditSink);
+  check("signals", set.signals, validateSignalSink);
   check("auth", set.auth, validateAuthProvider);
   check("identity", set.identity, validateIdentityProvider);
   if (set.connectors != null) {
