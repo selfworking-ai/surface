@@ -27,6 +27,20 @@
 // carries header `x-surface-token: <SURFACE_MCP_TOKEN>`; a 409 means no active turn
 // (or bad token). The base URL + token arrive in the env the adapter sets on spawn.
 
+// PURE validation/normalization/shaping lives in a side-channel-free sibling module
+// so it's unit-testable WITHOUT a running kernel (the token-validator pattern). The
+// `*Impl` functions below keep their call()/emit() I/O but delegate every guard/shape
+// here — behavior is identical (same throw messages, same returned strings).
+import {
+  validatePatchArgs,
+  validateRenderArgs,
+  normalizeAskArgs,
+  shapeAskResult,
+  shapePermissionResponse,
+  denyResponse,
+  parseScreenshotResult,
+} from "./validators.mjs";
+
 // ── Env: where the kernel side channel lives + the per-turn auth token ──────────
 // Declared at module top (above any boot-reachable use) to dodge the TDZ trap (G5).
 const BASE_URL = (process.env.SURFACE_MCP_URL ?? "http://127.0.0.1:5761").replace(/\/+$/, "");
@@ -63,41 +77,24 @@ async function emit(kind, extra) {
 }
 
 // ── Tool implementations ────────────────────────────────────────────────────────
-async function patchImpl({ ops }) {
-  if (!Array.isArray(ops) || ops.length === 0) throw new Error("patch requires a non-empty `ops` array");
+async function patchImpl(args) {
+  const { ops } = validatePatchArgs(args);
   await emit("patch", { ops });
   return "Patched the canvas.";
 }
 
-async function renderImpl({ html }) {
-  if (typeof html !== "string" || !html.trim()) throw new Error("render requires non-empty `html`");
+async function renderImpl(args) {
+  const { html } = validateRenderArgs(args);
   await emit("render", { html });
   return "Painted the canvas for this turn.";
 }
 
-async function askImpl({ question, options, context }) {
-  if (!question || typeof question !== "string") throw new Error("ask requires `question` (string)");
-  if (!Array.isArray(options) || options.length === 0) throw new Error("ask requires a non-empty `options` array");
-  if (options.length > 6) throw new Error("ask supports at most 6 options");
-  const clean = options.map((o, i) => {
-    if (!o || typeof o !== "object") throw new Error(`option ${i} must be {label, value, freeText?}`);
-    if (!o.label || typeof o.label !== "string") throw new Error(`option ${i} needs a string \`label\``);
-    if (!o.value || typeof o.value !== "string") throw new Error(`option ${i} needs a string \`value\``);
-    return { label: o.label, value: o.value, freeText: o.freeText === true };
-  });
-
+async function askImpl(args) {
+  const { question, context, options } = normalizeAskArgs(args);
   // BLOCKS on the kernel until the user taps; the kernel resolves the HTTP
   // response with the chosen option (or a cancellation).
-  const answer = await call("/mcp/ask", {
-    body: { question, context: typeof context === "string" ? context : undefined, options: clean },
-  });
-  if (answer?.cancelled) {
-    return JSON.stringify({ cancelled: true, reason: typeof answer.reason === "string" ? answer.reason : "user did not pick" });
-  }
-  return JSON.stringify({
-    label: typeof answer?.label === "string" ? answer.label : "",
-    value: typeof answer?.value === "string" ? answer.value : "",
-  });
+  const answer = await call("/mcp/ask", { body: { question, context, options } });
+  return shapeAskResult(answer);
 }
 
 async function permissionPromptImpl(args) {
@@ -107,18 +104,15 @@ async function permissionPromptImpl(args) {
   const tool_name = args?.tool_name;
   const input = args?.input ?? {};
   if (!tool_name || typeof tool_name !== "string") {
-    return JSON.stringify({ behavior: "deny", message: "permission_prompt called without tool_name" });
+    return denyResponse("permission_prompt called without tool_name");
   }
   let decision;
   try {
     decision = await call("/mcp/permission", { body: { tool: tool_name, input } });
   } catch (err) {
-    return JSON.stringify({ behavior: "deny", message: `permission side channel error: ${err?.message || err}` });
+    return denyResponse(`permission side channel error: ${err?.message || err}`);
   }
-  if (decision?.behavior === "allow") {
-    return JSON.stringify({ behavior: "allow", updatedInput: decision.updatedInput ?? input });
-  }
-  return JSON.stringify({ behavior: "deny", message: typeof decision?.message === "string" ? decision.message : "denied" });
+  return shapePermissionResponse(decision, input);
 }
 
 // Returns either a string OR an MCP content array (text + image). The dispatcher
@@ -127,18 +121,7 @@ async function screenshotImpl() {
   let d;
   try { d = await call("/mcp/screenshot", { body: {} }); }
   catch (err) { throw new Error(`screenshot side channel error: ${err?.message || err}`); }
-  if (!d?.ok || !d.dataUrl) return `No screenshot available (${d?.reason || "nothing to capture"}).`;
-  const m = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(d.dataUrl);
-  if (!m) return "Screenshot returned malformed image data.";
-  const overlaps = Array.isArray(d.annotated) && d.annotated.length
-    ? `The user's drawing overlaps: ${d.annotated.join("; ")}.`
-    : "The user has drawn on the screen.";
-  return {
-    content: [
-      { type: "text", text: `${overlaps} Below is the current screen (your canvas with the user's annotation drawn over it):` },
-      { type: "image", data: m[2], mimeType: m[1] },
-    ],
-  };
+  return parseScreenshotResult(d);
 }
 
 async function timelineImpl() {

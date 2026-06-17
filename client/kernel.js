@@ -17,6 +17,15 @@
 // (<surface-metric> …) and gives the reconciler the name→tag resolver. Tokens
 // pierce the shadow boundary, so :root styling still reaches inside each element.
 import { tagFor, isRegistered } from "./components/index.js";
+// Pure, DOM-free state core (mount/update/remove/layout semantics + the
+// live/time-travel machine). kernel.js owns ALL the DOM; the core owns the STATE
+// decisions, so the op semantics + the SX-2 live-flag logic are unit-tested under
+// node and can't drift from this consumer. See reconciler-core.mjs.
+import {
+  createCanvasState, applyOp,
+  createViewState, atNow as coreAtNow, enterLive, setFrames,
+  gotoFrame as coreGoto, returnToNow as coreReturn, recallFrame as coreRecall,
+} from "./reconciler-core.mjs";
 
 const PROTOCOL_V = 1;
 
@@ -60,10 +69,15 @@ let modeLocked = false;
 let currentMode = null;
 
 // ── Retained-mode store ──────────────────────────────────────────────────
-// The live composition. id → { component, props, slot, at, el }. This is the
-// source of truth for "now"; the reconciler mutates it on every patch op.
-const nodes = new Map();
-let layoutSpec = { columns: 4 };
+// The live composition. The pure core (reconciler-core.mjs) owns the STATE:
+// `canvas state.nodes` is id → { component, props, slot, at } and `state.layout`
+// is the merged spec — the source of truth for "now", mutated on every patch op.
+// kernel.js keeps the matching DOM element + mount time alongside in `els`
+// (id → { el, mountedAt }); only the DOM lives here, the state lives in the core.
+const cstate = createCanvasState();
+const nodes = cstate.nodes;          // id → { component, props, slot, at } (core-owned)
+const els = new Map();               // id → { el, mountedAt } (DOM-only, kernel-owned)
+const layoutOf = () => cstate.layout;
 
 // Generic projection renderers (M6): a borrowed-namespace projection (org.graph,
 // agent.inbox, …) maps to a registered component that renders the data. This is how
@@ -76,17 +90,19 @@ const NS_RENDERER = { "org.graph": "org-graph", "agent.inbox": "inbox" };
 // `snapshot` (components + layout) and/or an `html`/`spec` escape-hatch payload.
 // `viewIndex` = which frame is on screen; at the right edge we show the LIVE
 // canvas (the live `nodes`), not a frame.
-let frames = [];
-let viewIndex = -1;
-let live = true;              // are we showing the PRESENT (vs a scrubbed-back frame)?
+// The pure core owns frames/viewIndex/live (the SX-2 explicit-flag machine).
+// `view.frames` / `view.viewIndex` / `view.live` replace the old module locals;
+// every transition goes through reconciler-core.mjs so the machine is unit-tested.
+const view = createViewState();
 let liveKind = "patch";       // what the live view is: "patch" | "html" | "scene"
 let liveHtml = null;          // latest live render() html (escape hatch)
 let liveSpec = null;          // latest live scene() spec (escape hatch)
 let scenePlayer = null;       // optional scene player instance, mounted lazily
-// "At now" is an EXPLICIT flag, not derived from viewIndex vs frames.length: a
-// live patch lands BEFORE its frame-commit grows `frames`, so a derived check
-// reads stale and would snap us into the past on the very next history refresh.
-const atNow = () => live;
+// "At now" is an EXPLICIT flag (view.live), not derived from viewIndex vs
+// frames.length: a live patch lands BEFORE its frame-commit grows `frames`, so a
+// derived check reads stale and would snap us into the past on the very next
+// history refresh. (SX-2 — the core enforces this; this is the consumer's view.)
+const atNow = () => coreAtNow(view);
 
 // Time-travel runs on a real time axis. Default window is 1 hour; it grows to
 // fit the whole session if it has run longer. "now" is the right edge.
@@ -191,62 +207,64 @@ function applyPatch(ops) {
   if (!atNow()) returnToNow();           // a live patch is the present; leave history
   ensureGrid();
   for (const op of ops) {
-    if (!op || typeof op !== "object") continue;
-    switch (op.op) {
-      case "mount": opMount(op); break;
-      case "update": opUpdate(op); break;
-      case "remove": opRemove(op); break;
-      case "layout": opLayout(op); break;
+    // The core decides the STATE change + returns a DOM action descriptor;
+    // kernel.js performs the DOM work. (Identical op semantics to the server.)
+    const r = applyOp(cstate, op);
+    switch (r.action) {
+      case "mount":  domMount(r); break;
+      case "update": domUpdate(r); break;
+      case "remove": domRemove(r); break;
+      case "layout": domLayout(r); break;
+      // "noop" (malformed / unknown-id update|remove) → no DOM work. The CLIENT
+      // ignores an unknown-id update/remove (the server rejects — finding #6).
     }
   }
   liveKind = "patch"; liveHtml = null; liveSpec = null;
-  live = true;
-  viewIndex = frames.length - 1;
+  enterLive(view);                       // SX-2: live=true now, viewIndex=last
   setPast(false);
   buildRail();
 }
 
-function opMount({ id, component, props, slot, at }) {
-  if (!id || !component) return;
+// DOM side of a core "mount" descriptor: upsert the element. `replaced` (an
+// existing id) swaps in place keeping order; a first mount rises in.
+function domMount({ id, component, props, replaced }) {
   const el = renderComponent(component, props);
   el.dataset.id = id;
-  const existing = nodes.get(id);
-  if (existing && existing.el && existing.el.parentNode === canvas) {
-    canvas.replaceChild(el, existing.el);   // upsert: swap in place, keep order
+  const prev = els.get(id);
+  if (replaced && prev && prev.el && prev.el.parentNode === canvas) {
+    canvas.replaceChild(el, prev.el);       // upsert: swap in place, keep order
   } else {
     el.classList.add("mounted");            // first mount → rise in
     canvas.appendChild(el);
   }
-  nodes.set(id, { component, props: props && typeof props === "object" ? { ...props } : {}, slot, at, el, mountedAt: Date.now() });
+  els.set(id, { el, mountedAt: Date.now() });
   // Signal: the agent mounted a component the registry doesn't know (rendered as a
   // fallback) — a candidate for the component-smith to author.
   if (!isRegistered(component)) emitSignal("unknown-component", component);
 }
 
-function opUpdate({ id, props }) {
-  const node = nodes.get(id);
-  if (!node) return;                        // unknown id → ignore
-  node.props = { ...node.props, ...(props && typeof props === "object" ? props : {}) };
-  // Setting .props re-renders the custom element in place (no mount rise replay).
-  node.el.props = isRegistered(node.component) ? node.props : { __name: node.component, __props: node.props };
+// DOM side of a core "update": re-set .props (re-renders in place, no rise replay).
+function domUpdate({ id, component, props }) {
+  const rec = els.get(id);
+  if (!rec || !rec.el) return;
+  rec.el.props = isRegistered(component) ? props : { __name: component, __props: props };
 }
 
-function opRemove({ id }) {
-  const node = nodes.get(id);
-  if (!node) return;
-  if (node.el && node.el.parentNode) node.el.remove();
+// DOM side of a core "remove": pull the element + emit a dwell/dismiss signal.
+function domRemove({ id, component }) {
+  const rec = els.get(id);
+  if (rec && rec.el && rec.el.parentNode) rec.el.remove();
   // Signal: a quick removal is a dismiss (low utility); a long-lived one is healthy
   // dwell. The gardener weighs these.
-  const ms = node.mountedAt ? Date.now() - node.mountedAt : 0;
-  emitSignal(ms < 4000 ? "dismiss" : "dwell", node.component, { ms });
-  nodes.delete(id);
+  const ms = rec && rec.mountedAt ? Date.now() - rec.mountedAt : 0;
+  emitSignal(ms < 4000 ? "dismiss" : "dwell", component, { ms });
+  els.delete(id);
 }
 
-function opLayout({ spec }) {
-  if (!spec || typeof spec !== "object") return;
-  layoutSpec = { ...layoutSpec, ...spec };
+// DOM side of a core "layout": reflect the merged column count onto the grid.
+function domLayout({ columns }) {
   canvas.classList.add("grid");
-  if (layoutSpec.columns != null) canvas.style.setProperty("--cols", String(layoutSpec.columns));
+  if (columns != null) canvas.style.setProperty("--cols", String(columns));
 }
 
 function onPatch(msg) {
@@ -274,11 +292,15 @@ function renderLive() {
   canvas.textContent = "";
   if (nodes.size === 0) { canvas.classList.remove("grid"); paintEmpty(); return; }
   canvas.classList.add("grid");
-  if (layoutSpec.columns != null) canvas.style.setProperty("--cols", String(layoutSpec.columns));
+  const cols = layoutOf().columns;
+  if (cols != null) canvas.style.setProperty("--cols", String(cols));
   for (const [id, node] of nodes) {
     const el = renderComponent(node.component, node.props);
     el.dataset.id = id;
-    node.el = el;
+    // Re-point the kernel's DOM record at the rebuilt element (state stays in the
+    // core's node; only el/mountedAt live here). Preserve mountedAt if known.
+    const prev = els.get(id);
+    els.set(id, { el, mountedAt: prev ? prev.mountedAt : Date.now() });
     canvas.appendChild(el);
   }
   stage.scrollTop = 0;
@@ -321,8 +343,7 @@ function playScene(spec) {
 function onRender(msg) {
   if (msg.recalled != null) { recallFrame(msg.recalled); return; }
   liveKind = "html"; liveHtml = msg.html; liveSpec = null;
-  live = true;
-  viewIndex = frames.length - 1;
+  enterLive(view);                       // SX-2: a render() is the present
   showHtml(msg.html); setPast(false);
   buildRail();
 }
@@ -330,8 +351,7 @@ function onRender(msg) {
 function onScene(msg) {
   if (msg.recalled != null) { recallFrame(msg.recalled); return; }
   liveKind = "scene"; liveSpec = msg.spec; liveHtml = null;
-  live = true;
-  viewIndex = frames.length - 1;
+  enterLive(view);                       // SX-2: a scene() is the present
   playScene(msg.spec); setPast(false);
   buildRail();
 }
@@ -345,8 +365,10 @@ async function fetchHistory() {
     const r = await fetch(`/api/history?session=${encodeURIComponent(sid)}`);
     if (!r.ok) return;
     const data = await r.json();
-    frames = Array.isArray(data) ? data : (Array.isArray(data.frames) ? data.frames : []);
-    if (atNow()) viewIndex = frames.length - 1;
+    const next = Array.isArray(data) ? data : (Array.isArray(data.frames) ? data.frames : []);
+    // SX-2: setFrames only advances viewIndex WHEN at-now; never touches `live`,
+    // so a live patch that hasn't yet committed its frame can't snap us to the past.
+    setFrames(view, next);
     paintCurrent(); buildRail();
   } catch { /* offline / no history yet */ }
 }
@@ -368,7 +390,7 @@ function renderSnapshot(frame) {
   if (comps.length === 0) { canvas.classList.remove("grid"); paintEmpty(); return; }
   canvas.classList.add("grid");
   const cols = snap.layout && snap.layout.columns;
-  canvas.style.setProperty("--cols", String(cols != null ? cols : (layoutSpec.columns ?? 4)));
+  canvas.style.setProperty("--cols", String(cols != null ? cols : (layoutOf().columns ?? 4)));
   for (const c of comps) {
     if (!c || !c.component) continue;
     const el = renderComponent(c.component, c.props);
@@ -381,22 +403,21 @@ function renderSnapshot(frame) {
 }
 
 function paintCurrent() {
-  if (!atNow()) { renderSnapshot(frames[viewIndex]); setPast(true); }
+  if (!atNow()) { renderSnapshot(view.frames[view.viewIndex]); setPast(true); }
   else { renderLive(); setPast(false); }
 }
 
+// Scrub to frame `i` — the core clamps + recomputes live (last tick === live).
 function gotoFrame(i) {
-  if (!frames.length) return;
-  viewIndex = Math.max(0, Math.min(i, frames.length - 1));
-  live = viewIndex >= frames.length - 1;     // scrubbing to the last tick === live
+  if (!view.frames.length) return;
+  coreGoto(view, i);
   paintCurrent(); buildRail();
 }
-function returnToNow() { live = true; viewIndex = frames.length - 1; paintCurrent(); buildRail(); }
+function returnToNow() { coreReturn(view); paintCurrent(); buildRail(); }
 
 // Agent-driven recall — re-surface a past frame verbatim (read-only look-back).
 function recallFrame(n) {
-  const idx = frames.findIndex((f) => f.n === n);
-  if (idx >= 0) { viewIndex = idx; live = idx >= frames.length - 1; paintCurrent(); buildRail(); }
+  if (coreRecall(view, n)) { paintCurrent(); buildRail(); }
 }
 
 function shortPrompt(s) { s = String(s); return s.length > 60 ? s.slice(0, 57) + "…" : s; }
@@ -404,6 +425,7 @@ function shortPrompt(s) { s = String(s); return s.length > 60 ? s.slice(0, 57) +
 // ── Time ruler ──────────────────────────────────────────────────────────
 function frameTs(f) { return new Date(f.ts).getTime(); }
 function seekWindow() {
+  const frames = view.frames;
   const now = Date.now();
   const oldest = frames.length ? frameTs(frames[0]) : now;
   const span = Math.max(SEEK_SPAN_MIN, now - oldest);   // ≥1h, grows to fit
@@ -422,6 +444,7 @@ function fmtDur(ms) {
 // Render the video-style scrubber inside the dock. Appears at ≥2 turns.
 // Checkpoints sit at their real timestamp on the time window.
 function buildRail() {
+  const frames = view.frames, viewIndex = view.viewIndex;
   if (frames.length < 2) { seekEl.hidden = true; return; }
   seekEl.hidden = false;
   if (seekTrack.dataset.count !== String(frames.length)) {
@@ -454,7 +477,7 @@ function frameFromClientX(x) {
   const win = seekWindow();
   const t = win.start + ratio * win.span;
   let best = 0, bestD = Infinity;
-  frames.forEach((f, i) => { const d = Math.abs(frameTs(f) - t); if (d < bestD) { bestD = d; best = i; } });
+  view.frames.forEach((f, i) => { const d = Math.abs(frameTs(f) - t); if (d < bestD) { bestD = d; best = i; } });
   return best;
 }
 
@@ -821,7 +844,7 @@ gate.querySelectorAll("button[data-mode]").forEach((b) => { b.onclick = () => lo
 // the far-right edge is "now". Snaps to the nearest turn.
 let seekDragging = false;
 seekTrack.addEventListener("pointerdown", (e) => {
-  if (frames.length < 2) return;
+  if (view.frames.length < 2) return;
   seekDragging = true;
   try { seekTrack.setPointerCapture(e.pointerId); } catch {}
   gotoFrame(frameFromClientX(e.clientX));
